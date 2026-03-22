@@ -1,0 +1,12 @@
+# YouTube Playlists — one per line
+# Format: URL | Custom Name (optional)
+#
+# If no custom name is provided, the playlist title from YouTube is used.
+# Videos are downloaded in playlist order and numbered S01E001, S01E002, etc.
+# These videos are stored in ~/Movies/youtube/ (same Plex library) but are
+# protected from automatic cleanup (unlike channel videos).
+#
+# Examples:
+# https://www.youtube.com/playlist?list=PLxxxxx | Curso de Python
+# https://www.youtube.com/playlist?list=PLyyyyy
+https://youtube.com/playlist?list=PLrFkZrRQk9nmM_HGekCnk3dgef4R6SlVe | Test Playlist

@@ -29,6 +29,9 @@
 #   bash commands.sh health              # Health check del proxy
 #   bash commands.sh last-download       # Último video descargado
 #   bash commands.sh errors              # Errores recientes en logs
+#   bash commands.sh playlists               # Listar playlists configuradas
+#   bash commands.sh add-playlist <URL> [nombre]  # Agregar playlist
+#   bash commands.sh download-playlist <URL> [nombre]  # Descargar playlist
 #   bash commands.sh placeholders <URL> [N]  # Generar placeholders
 #   bash commands.sh start-all           # Iniciar todos los servicios
 #   bash commands.sh stop-all            # Detener todos los servicios
@@ -363,6 +366,68 @@ yt_errors() {
     echo ""
 }
 
+yt_playlists() {
+    _header "Playlists configuradas"
+    local playlists_file="$CONFIG_DIR/playlists.txt"
+    if [[ ! -s "$playlists_file" ]]; then
+        _warn "No hay playlists configuradas en $playlists_file"
+        return 0
+    fi
+    local count=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        count=$((count + 1))
+        local url name
+        if [[ "$line" == *"|"* ]]; then
+            url=$(echo "$line" | cut -d'|' -f1 | xargs)
+            name=$(echo "$line" | cut -d'|' -f2- | xargs)
+            _info "$count. ${name} — ${url}"
+        else
+            url=$(echo "$line" | xargs)
+            _info "$count. ${url}"
+        fi
+    done < "$playlists_file"
+    echo ""
+    _info "Total: $count playlist(s)"
+    _info "Videos en: $HOME/Movies/youtube/ (protegidos del cleanup)"
+}
+
+yt_add_playlist() {
+    local url="${1:-}"
+    local name="${2:-}"
+    if [[ -z "$url" ]]; then
+        echo "Uso: commands.sh add-playlist <URL> [nombre]"
+        echo "Ejemplo: commands.sh add-playlist 'https://www.youtube.com/playlist?list=PLxxxxx' 'Curso de Python'"
+        return 1
+    fi
+    local playlists_file="$CONFIG_DIR/playlists.txt"
+    # Check for duplicate URL
+    if grep -qF "$url" "$playlists_file" 2>/dev/null; then
+        _warn "Esa playlist ya está configurada"
+        return 1
+    fi
+    if [[ -n "$name" ]]; then
+        echo "${url} | ${name}" >> "$playlists_file"
+        _ok "Playlist agregada: ${name} (${url})"
+    else
+        echo "$url" >> "$playlists_file"
+        _ok "Playlist agregada: ${url}"
+    fi
+}
+
+yt_download_playlist() {
+    local url="${1:-}"
+    local name="${2:-}"
+    if [[ -z "$url" ]]; then
+        echo "Uso: commands.sh download-playlist <URL> [nombre]"
+        echo "Ejemplo: commands.sh download-playlist 'https://www.youtube.com/playlist?list=PLxxxxx' 'Curso de Python'"
+        return 1
+    fi
+    _header "Descargando playlist: ${name:-$url}"
+    bash "$SCRIPTS_DIR/download-playlists.sh" "$url" "$name"
+}
+
 yt_placeholders() {
     local url="${1:-}"
     local count="${2:-10}"
@@ -450,6 +515,11 @@ _usage() {
     echo "  stop-all        Detener todos los servicios"
     echo "  restart-all     Reiniciar todos los servicios"
     echo ""
+    echo -e "${BOLD}Playlists:${NC}"
+    echo "  playlists           Listar playlists configuradas"
+    echo "  add-playlist        Agregar playlist (args: URL [nombre])"
+    echo "  download-playlist   Descargar playlist manualmente (args: URL [nombre])"
+    echo ""
     echo -e "${BOLD}Utilidades:${NC}"
     echo "  placeholders    Generar placeholders (args: URL [cantidad])"
 }
@@ -484,7 +554,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         health)         yt_health ;;
         last-download)  yt_last_download ;;
         errors)         yt_errors ;;
-        placeholders)   yt_placeholders "$@" ;;
+        playlists)          yt_playlists ;;
+        add-playlist)       yt_add_playlist "$@" ;;
+        download-playlist)  yt_download_playlist "$@" ;;
+        placeholders)       yt_placeholders "$@" ;;
         stop-all)       yt_stop_all ;;
         start-all)      yt_start_all ;;
         restart-all)    yt_restart_all ;;
