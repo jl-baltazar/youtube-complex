@@ -28,6 +28,17 @@ mkdir -p "${LOG_DIR}"
 
 touch "${ARCHIVE_FILE}"
 
+PROTECTED_FOLDERS_FILE="${STATE_DIR}/playlist-folders.txt"
+
+# Check if a video file belongs to a protected playlist folder
+is_protected() {
+    local video_file="$1"
+    [[ -s "${PROTECTED_FOLDERS_FILE}" ]] || return 1
+    local folder_name
+    folder_name=$(basename "$(dirname "$video_file")")
+    grep -qxF -- "$folder_name" "${PROTECTED_FOLDERS_FILE}" 2>/dev/null
+}
+
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_DIR}/download.log"
 }
@@ -37,13 +48,21 @@ get_disk_usage_pct() {
     df "${MEDIA_DIR}" | awk 'NR==2 {sub(/%/,"",$5); print $5}'
 }
 
-# Find the oldest video file (pipefail-safe)
+# Find the oldest video file (pipefail-safe), excluding protected playlist folders
 find_oldest_video() {
     local tmpfile
     tmpfile=$(mktemp)
     find "${MEDIA_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) -exec stat -f '%m %N' {} \; > "$tmpfile" 2>/dev/null
     if [ -s "$tmpfile" ]; then
-        sort -n "$tmpfile" | head -1 | cut -d' ' -f2-
+        while IFS= read -r line; do
+            local file
+            file=$(echo "$line" | cut -d' ' -f2-)
+            if ! is_protected "$file"; then
+                echo "$file"
+                rm -f "$tmpfile"
+                return
+            fi
+        done < <(sort -n "$tmpfile")
     fi
     rm -f "$tmpfile"
 }
@@ -110,7 +129,7 @@ enforce_storage_limit() {
         [ -z "$plex_path" ] && continue
         # Convert Plex container path to local path
         watched_local="${plex_path/#${PLEX_MEDIA_PREFIX}/${MEDIA_DIR}}"
-        if [ -f "$watched_local" ]; then
+        if [ -f "$watched_local" ] && ! is_protected "$watched_local"; then
             delete_video "$watched_local"
             deleted=$(( deleted + 1 ))
             usage_pct=$(get_disk_usage_pct)
@@ -171,6 +190,14 @@ while true; do
         enforce_storage_limit
 
     done < "${CHANNELS_FILE}"
+
+    # Process playlists (series, courses — stored separately, not subject to cleanup)
+    log "Processing playlists..."
+    if "${BASE_DIR}/scripts/download-playlists.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"; then
+        log "Playlists processed."
+    else
+        log "WARNING: Playlist processing had errors."
+    fi
 
     # Trigger Plex library scan to pick up new videos
     if docker exec -e LD_LIBRARY_PATH=/usr/lib/plexmediaserver plex \
