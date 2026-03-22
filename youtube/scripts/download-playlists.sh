@@ -39,32 +39,37 @@ download_playlist() {
     local url="$1"
     local custom_name="${2:-}"
 
+    local label rc
     if [[ -n "$custom_name" ]]; then
-        # Override output template with custom name
+        label="$custom_name"
         local output_template="${MEDIA_DIR}/${custom_name}/${custom_name} - S01E%(playlist_index&{:03d})s - %(title)s [%(id)s].%(ext)s"
-        log "Downloading playlist: ${custom_name} (${url})"
-        if yt-dlp --config-location "${PLAYLIST_CONFIG}" \
+        log "Downloading playlist: ${label} (${url})"
+        set +e
+        yt-dlp --config-location "${PLAYLIST_CONFIG}" \
             -o "$output_template" \
             "${COOKIE_OPTION[@]}" \
-            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"; then
-            log "Successfully processed playlist: ${custom_name}"
-        else
-            log "ERROR: Failed to process playlist: ${custom_name} (${url})"
-        fi
+            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"
+        rc="${PIPESTATUS[0]}"
+        set -e
         register_protected_folder "$custom_name"
     else
-        # Get playlist title first to register the folder name
         local playlist_title
         playlist_title=$(yt-dlp --flat-playlist --print "%(playlist_title)s" --playlist-items 1 "${COOKIE_OPTION[@]}" "$url" 2>/dev/null | head -1)
-        log "Downloading playlist: ${playlist_title:-$url}"
-        if yt-dlp --config-location "${PLAYLIST_CONFIG}" \
+        label="${playlist_title:-$url}"
+        log "Downloading playlist: ${label}"
+        set +e
+        yt-dlp --config-location "${PLAYLIST_CONFIG}" \
             "${COOKIE_OPTION[@]}" \
-            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"; then
-            log "Successfully processed playlist: ${playlist_title:-$url}"
-        else
-            log "ERROR: Failed to process playlist: ${playlist_title:-$url}"
-        fi
+            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"
+        rc="${PIPESTATUS[0]}"
+        set -e
         [[ -n "$playlist_title" ]] && register_protected_folder "$playlist_title"
+    fi
+
+    if [[ "$rc" -eq 0 ]]; then
+        log "OK: ${label}"
+    else
+        log "ERROR (exit $rc): ${label}"
     fi
 }
 
