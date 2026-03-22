@@ -26,6 +26,28 @@ Automated YouTube channel archival system with Plex Media Server integration and
 
 ---
 
+## Commands
+
+All recurring commands are centralized in `commands.sh` at the project root. Run `bash commands.sh help` for the full list. Key commands:
+
+```bash
+bash commands.sh status          # Estado general (servicios, disco, ciclo)
+bash commands.sh cycle-status    # Detalle del ciclo de descarga actual
+bash commands.sh restart-cycle   # Reiniciar ciclo de descarga
+bash commands.sh stop-cycle      # Detener ciclo
+bash commands.sh start-cycle     # Iniciar ciclo
+bash commands.sh restart-proxy   # Reiniciar streaming proxy
+bash commands.sh plex-scan       # Escanear librería Plex
+bash commands.sh logs            # Últimas 50 líneas del ciclo
+bash commands.sh logs-follow     # Seguir logs en tiempo real
+bash commands.sh errors          # Errores recientes
+bash commands.sh start-all       # Iniciar todos los servicios
+bash commands.sh stop-all        # Detener todos los servicios
+bash commands.sh restart-all     # Reiniciar todos los servicios
+```
+
+---
+
 ## Pending / Future
 
 - Batch rename existing `YYYY-MM-DD` videos to SxxEyy format.

@@ -1,8 +1,8 @@
 #!/bin/bash
-# Generates .strm placeholder files for the last N videos of a YouTube channel.
-# Each .strm points to the streaming proxy so Plex streams directly from YouTube.
+# Generates placeholder MP4 files for the last N videos of a YouTube channel.
+# Each placeholder is a 10-second H.264 video with "Descargando..." text.
 # A .placeholder sidecar file maps back to the YouTube video ID.
-# The proxy also downloads the video in the background for future offline plays.
+# When played in Plex, the webhook triggers a background download of the real video.
 #
 # Usage: generate-placeholders.sh <channel_url> [count]
 # Example: generate-placeholders.sh "https://www.youtube.com/@Platzi" 10
@@ -19,7 +19,6 @@ MEDIA_DIR="/Users/jlgarcia/Movies/youtube"
 ARCHIVE_FILE="${BASE_DIR}/state/archive.txt"
 COUNT="${2:-10}"
 CHANNEL_URL="${1:?Usage: generate-placeholders.sh <channel_url> [count]}"
-STREAM_BASE_URL="http://host.docker.internal:9090"
 
 COOKIE_OPTION=""
 if [[ -s "${CONFIG_DIR}/cookies.txt" ]] && grep -qE '^\.' "${CONFIG_DIR}/cookies.txt"; then
@@ -28,6 +27,29 @@ fi
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Generate a 10-second placeholder MP4 with channel name, title, and "Descargando..." text
+generate_placeholder_mp4() {
+    local output_file="$1"
+    local channel="$2"
+    local title="$3"
+
+    # Escape special characters for ffmpeg drawtext
+    local safe_channel safe_title_line
+    safe_channel=$(echo "$channel" | sed "s/[':]/\\\\&/g")
+    safe_title_line=$(echo "$title" | sed "s/[':]/\\\\&/g" | cut -c1-60)
+
+    ffmpeg -y -loglevel error \
+        -f lavfi -i "color=c=black:s=1280x720:d=10:r=24" \
+        -f lavfi -i "anullsrc=r=44100:cl=stereo" \
+        -vf "drawtext=text='Descargando...':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2-80, \
+             drawtext=text='${safe_channel}':fontsize=32:fontcolor=#AAAAAA:x=(w-text_w)/2:y=(h-text_h)/2, \
+             drawtext=text='${safe_title_line}':fontsize=24:fontcolor=#888888:x=(w-text_w)/2:y=(h-text_h)/2+50, \
+             drawtext=text='Vuelve a reproducir en unos segundos':fontsize=20:fontcolor=#666666:x=(w-text_w)/2:y=(h-text_h)/2+120" \
+        -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \
+        -c:a aac -shortest -t 10 \
+        "$output_file"
 }
 
 log "Fetching last ${COUNT} videos from: ${CHANNEL_URL}"
@@ -114,17 +136,20 @@ while IFS= read -r line; do
     # SxxEyy format: Season=year, Episode=MMDD+index for unique episodes per day
     year=$(echo "$upload_date" | cut -d'-' -f1)
     mmdd=$(echo "$upload_date" | cut -d'-' -f2,3 | tr -d '-')
-    existing_count=$(find "${channel_dir}" -maxdepth 1 -name "${channel_name} - S${year}E${mmdd}*" \( -name "*.mp4" -o -name "*.strm" \) 2>/dev/null | wc -l | tr -d ' ')
+    existing_count=$(find "${channel_dir}" -maxdepth 1 -name "${channel_name} - S${year}E${mmdd}*" -name "*.mp4" 2>/dev/null | wc -l | tr -d ' ')
     ep_index=$(printf "%02d" $((existing_count + 1)))
 
     base_name="${channel_name} - S${year}E${mmdd}${ep_index} - ${safe_title} [${video_id}]"
-    strm_file="${channel_dir}/${base_name}.strm"
+    mp4_file="${channel_dir}/${base_name}.mp4"
     placeholder_file="${channel_dir}/${base_name}.placeholder"
     thumb_file="${channel_dir}/${base_name}.jpg"
 
-    # Create .strm file pointing to streaming proxy
+    # Generate placeholder MP4
     log "Creating placeholder: ${safe_title}"
-    echo "${STREAM_BASE_URL}/stream/${video_id}" > "$strm_file"
+    if ! generate_placeholder_mp4 "$mp4_file" "$channel_name" "$safe_title"; then
+        log "ERROR: ffmpeg failed for ${safe_title}, skipping"
+        continue
+    fi
 
     # Write sidecar with video ID
     echo "$video_id" > "$placeholder_file"
