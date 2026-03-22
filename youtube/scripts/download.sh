@@ -174,16 +174,26 @@ while true; do
         continue
     fi
 
+    ok_count=0 err_count=0
+
     while IFS= read -r line || [ -n "$line" ]; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// }" ]] && continue
 
         log "Processing channel: $line"
 
-        if yt-dlp --config-location "${CONFIG_FILE}" "${COOKIE_OPTION[@]}" "$line" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"; then
-            log "Successfully processed: $line"
+        # Run yt-dlp and capture exit code separately from tee
+        # Exit codes: 0=success, 101=max-downloads reached (expected), other=real error
+        set +e
+        yt-dlp --config-location "${CONFIG_FILE}" "${COOKIE_OPTION[@]}" "$line" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"
+        rc="${PIPESTATUS[0]}"
+        set -e
+        if [[ "$rc" -eq 0 || "$rc" -eq 101 ]]; then
+            log "OK: $line"
+            ok_count=$((ok_count + 1))
         else
-            log "ERROR: Failed to process: $line"
+            log "ERROR (exit $rc): $line"
+            err_count=$((err_count + 1))
         fi
 
         # Check storage after each channel download
@@ -191,12 +201,18 @@ while true; do
 
     done < "${CHANNELS_FILE}"
 
-    # Process playlists (series, courses — stored separately, not subject to cleanup)
+    log "Channels done: ${ok_count} OK, ${err_count} errors."
+
+    # Process playlists (series, courses — stored in same library, protected from cleanup)
     log "Processing playlists..."
-    if "${BASE_DIR}/scripts/download-playlists.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"; then
+    set +e
+    "${BASE_DIR}/scripts/download-playlists.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"
+    playlist_rc="${PIPESTATUS[0]}"
+    set -e
+    if [[ "$playlist_rc" -eq 0 ]]; then
         log "Playlists processed."
     else
-        log "WARNING: Playlist processing had errors."
+        log "WARNING: Playlist processing had errors (exit $playlist_rc)."
     fi
 
     # Trigger Plex library scan to pick up new videos
