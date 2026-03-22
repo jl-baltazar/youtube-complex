@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  youtube-ingest:
+    image: mikenye/youtube-dl:latest
+    container_name: youtube-ingest
+    restart: unless-stopped
+    entrypoint: "/bin/bash"
+    command: ["/scripts/download.sh"]
+    environment:
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./youtube/config:/config:ro
+      - ./youtube/state:/state
+      - ./youtube/scripts:/scripts:ro
+      - /Users/jlgarcia/Movies:/media

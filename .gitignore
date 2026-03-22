@@ -1,0 +1,15 @@
+# Cookies (sensitive)
+youtube/config/cookies.txt
+
+# State files (local, not portable)
+youtube/state/archive.txt
+youtube/state/archive.txt.bak
+youtube/state/logs/
+
+# Plex data (large, local)
+plex/config/
+plex/transcode/
+plex/config.backup-*/
+
+# Environment variables
+.env
