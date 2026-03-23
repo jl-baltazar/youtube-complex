@@ -107,42 +107,45 @@ except:
 " 2>/dev/null
 }
 
-# Two-phase cleanup:
-#   Phase 1: Delete watched videos first (already seen, safe to remove)
-#   Phase 2: Delete oldest unwatched videos if still over limit
+# Trigger a Plex scan so deleted/new files are reflected in the UI
+plex_scan() {
+    if docker exec -e LD_LIBRARY_PATH=/usr/lib/plexmediaserver plex \
+        "/usr/lib/plexmediaserver/Plex Media Scanner" --scan --section "${PLEX_SECTION}" >/dev/null 2>&1; then
+        log "Plex scan completed."
+    else
+        log "WARNING: Plex scan failed (is the container running?)"
+    fi
+}
+
+# Three-phase cleanup:
+#   Phase 1: Always delete ALL watched videos (already seen, no reason to keep)
+#   Phase 2: Delete oldest unwatched videos if still over disk limit
+#   Phase 3: Plex scan to remove deleted entries from the UI
 enforce_storage_limit() {
     local usage_pct
     usage_pct=$(get_disk_usage_pct)
-
-    if [ "$usage_pct" -lt "$MAX_DISK_USAGE_PCT" ]; then
-        return
-    fi
-
-    log "Disk usage at ${usage_pct}% (limit: ${MAX_DISK_USAGE_PCT}%). Starting cleanup..."
-
     local deleted=0
 
-    # Phase 1: Delete watched videos (oldest first)
-    log "Phase 1: Removing watched videos..."
-    local watched_local
+    # Phase 1: Always delete all watched, non-protected videos
+    local watched_deleted=0
     while IFS= read -r plex_path; do
         [ -z "$plex_path" ] && continue
-        # Convert Plex container path to local path
-        watched_local="${plex_path/#${PLEX_MEDIA_PREFIX}/${MEDIA_DIR}}"
+        local watched_local="${plex_path/#${PLEX_MEDIA_PREFIX}/${MEDIA_DIR}}"
         if [ -f "$watched_local" ] && ! is_protected "$watched_local"; then
             delete_video "$watched_local"
             deleted=$(( deleted + 1 ))
-            usage_pct=$(get_disk_usage_pct)
-            if [ "$usage_pct" -lt "$MAX_DISK_USAGE_PCT" ]; then
-                log "Phase 1 complete: removed $deleted watched video(s). Disk at ${usage_pct}%."
-                return
-            fi
+            watched_deleted=$(( watched_deleted + 1 ))
         fi
     done < <(get_watched_videos)
 
-    # Phase 2: Delete oldest unwatched videos
+    if [ "$watched_deleted" -gt 0 ]; then
+        usage_pct=$(get_disk_usage_pct)
+        log "Phase 1: removed $watched_deleted watched video(s). Disk at ${usage_pct}%."
+    fi
+
+    # Phase 2: Delete oldest unwatched videos if over disk limit
     if [ "$usage_pct" -ge "$MAX_DISK_USAGE_PCT" ]; then
-        log "Phase 2: Removing oldest unwatched videos..."
+        log "Disk usage at ${usage_pct}% (limit: ${MAX_DISK_USAGE_PCT}%). Removing oldest unwatched videos..."
         while [ "$usage_pct" -ge "$MAX_DISK_USAGE_PCT" ]; do
             oldest_video=$(find_oldest_video)
 
@@ -157,7 +160,11 @@ enforce_storage_limit() {
         done
     fi
 
-    log "Cleanup complete: removed $deleted video(s). Disk usage now at ${usage_pct}%."
+    # Phase 3: Plex scan to reflect deletions in the UI
+    if [ "$deleted" -gt 0 ]; then
+        log "Cleanup complete: removed $deleted video(s) ($watched_deleted watched). Disk at ${usage_pct}%."
+        plex_scan
+    fi
 }
 
 log "Starting YouTube download service (cycle every $((SLEEP_SECONDS/60)) minutes, max disk usage: ${MAX_DISK_USAGE_PCT}%)"
@@ -222,16 +229,11 @@ while true; do
     fi
 
     # Trigger Plex library scan to pick up new videos
-    if docker exec -e LD_LIBRARY_PATH=/usr/lib/plexmediaserver plex \
-        "/usr/lib/plexmediaserver/Plex Media Scanner" --scan --section 6 2>&1 | tee -a "${LOG_DIR}/download.log"; then
-        log "Plex library scan triggered."
-        # Fix episode titles from filenames
-        "${BASE_DIR}/scripts/fix-titles.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"
-        # Upload channel avatars as show posters
-        "${BASE_DIR}/scripts/fix-posters.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"
-    else
-        log "WARNING: Plex scan failed (is the container running?)"
-    fi
+    plex_scan
+    # Fix episode titles from filenames
+    "${BASE_DIR}/scripts/fix-titles.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"
+    # Upload channel avatars as show posters
+    "${BASE_DIR}/scripts/fix-posters.sh" 2>&1 | tee -a "${LOG_DIR}/download.log"
 
     log "Download cycle complete. Sleeping for $SLEEP_SECONDS seconds..."
     sleep "$SLEEP_SECONDS"
