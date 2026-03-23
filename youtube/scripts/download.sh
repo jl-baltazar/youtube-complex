@@ -91,7 +91,7 @@ delete_video() {
 # Gets list of watched video file paths (Plex container paths mapped to local paths)
 get_watched_videos() {
     curl -s -H "Accept: application/json" -H "X-Plex-Token: ${PLEX_TOKEN}" \
-        "${PLEX_URL}/library/sections/${PLEX_SECTION}/all?viewCount%3E=1&X-Plex-Container-Size=500" 2>/dev/null \
+        "${PLEX_URL}/library/sections/${PLEX_SECTION}/all?type=4&viewCount%3E=1&X-Plex-Container-Size=500" 2>/dev/null \
     | python3 -c "
 import json, sys
 try:
