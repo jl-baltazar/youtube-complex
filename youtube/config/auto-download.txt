@@ -1,0 +1,27 @@
+# Channels that get full automatic downloads (one URL per line).
+# All other channels in channels.txt get fast placeholders instead.
+# Placeholders trigger on-demand download when played in Plex.
+
+# Noticias / Política
+https://www.youtube.com/@AristeguiNoticias
+https://www.youtube.com/@SinEmbargoAlAire
+https://www.youtube.com/@Grillonautas2
+https://www.youtube.com/@ClaudiaSheinbaumP
+https://www.youtube.com/@gobiernodemexico
+https://www.youtube.com/@HernanGomezB1
+https://www.youtube.com/@LAOCTAVA
+https://www.youtube.com/@proceso
+
+# Tech / Dev
+https://www.youtube.com/@Platzi
+https://www.youtube.com/@Fireship
+https://www.youtube.com/@AndrejKarpathy
+https://www.youtube.com/@BettaTech
+
+# Favoritos
+https://www.youtube.com/@DiegoRuzzarin
+https://www.youtube.com/@EduardoRosas
+https://www.youtube.com/@aliabdaal
+https://www.youtube.com/@daninovarama
+https://www.youtube.com/@EvaMariaBeristain
+https://www.youtube.com/@Formula1
