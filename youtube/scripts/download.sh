@@ -11,6 +11,8 @@ CHANNELS_FILE="${CONFIG_DIR}/channels.txt"
 ARCHIVE_FILE="${STATE_DIR}/archive.txt"
 LOG_DIR="${STATE_DIR}/logs"
 CONFIG_FILE="${CONFIG_DIR}/yt-dlp.conf"
+AUTO_DOWNLOAD_FILE="${CONFIG_DIR}/auto-download.txt"
+PLACEHOLDER_COUNT=2      # Number of recent videos to generate placeholders for
 SLEEP_SECONDS=3600       # 1 hour
 MAX_DISK_USAGE_PCT=90    # Start cleanup when disk usage reaches this %
 PLEX_TOKEN="GNEaLTTQ1t932g8LUT7G"
@@ -29,6 +31,13 @@ mkdir -p "${LOG_DIR}"
 touch "${ARCHIVE_FILE}"
 
 PROTECTED_FOLDERS_FILE="${STATE_DIR}/playlist-folders.txt"
+
+# Check if a channel URL is in the auto-download list
+is_auto_download() {
+    local url="$1"
+    [[ -s "${AUTO_DOWNLOAD_FILE}" ]] || return 1
+    grep -qxF -- "$url" "${AUTO_DOWNLOAD_FILE}" 2>/dev/null
+}
 
 # Check if a video file belongs to a protected playlist folder
 is_protected() {
@@ -181,17 +190,17 @@ while true; do
         continue
     fi
 
-    ok_count=0 err_count=0
+    # ── Phase 1: Full download for auto-download channels ──
+    ok_count=0 err_count=0 auto_count=0
 
     while IFS= read -r line || [ -n "$line" ]; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// }" ]] && continue
+        is_auto_download "$line" || continue
 
-        log "Processing channel: $line"
+        auto_count=$((auto_count + 1))
+        log "Auto-download: $line"
 
-        # Run yt-dlp and capture exit code + output for error classification
-        # Exit codes: 0=success, 101=max-downloads reached (expected)
-        # Exit code 1 without ERROR: lines = no new videos (not a real error)
         ytdlp_tmp=$(mktemp)
         set +e
         yt-dlp --config-location "${CONFIG_FILE}" "${COOKIE_OPTION[@]}" "$line" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" > "$ytdlp_tmp"
@@ -209,12 +218,36 @@ while true; do
         fi
         rm -f "$ytdlp_tmp"
 
-        # Check storage after each channel download
         enforce_storage_limit
 
     done < "${CHANNELS_FILE}"
 
-    log "Channels done: ${ok_count} OK, ${err_count} errors."
+    log "Auto-download done: ${auto_count} channels, ${ok_count} OK, ${err_count} errors."
+
+    # ── Phase 2: Fast placeholders for remaining channels ──
+    placeholder_count=0 placeholder_err=0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+        is_auto_download "$line" && continue
+
+        log "Placeholders: $line"
+
+        set +e
+        "${BASE_DIR}/scripts/generate-placeholders.sh" "$line" "${PLACEHOLDER_COUNT}" 2>&1 | tee -a "${LOG_DIR}/download.log"
+        ph_rc="${PIPESTATUS[0]}"
+        set -e
+        if [[ "$ph_rc" -eq 0 ]]; then
+            placeholder_count=$((placeholder_count + 1))
+        else
+            log "WARNING: Placeholder generation failed for $line (exit $ph_rc)"
+            placeholder_err=$((placeholder_err + 1))
+        fi
+
+    done < "${CHANNELS_FILE}"
+
+    log "Placeholders done: ${placeholder_count} OK, ${placeholder_err} errors."
 
     # Process playlists (series, courses — stored in same library, protected from cleanup)
     log "Processing playlists..."
