@@ -10,7 +10,7 @@ Automated YouTube channel archival system with Plex Media Server integration and
 - **SxxEyy naming:** New files must use `S{YYYY}E{MMDD}{index}` format. Never revert to `YYYY-MM-DD` naming.
 - **Cookies are sensitive:** Never commit `cookies.txt`, `.env`, or Plex tokens.
 - **Plex paths:** Plex container sees `/media/youtube/...`, local is `~/Movies/youtube/...`. URLs inside Docker must use `host.docker.internal`, not `localhost`.
-- **Plex library:** Section 6, Plex Series Scanner. Token: `GNEaLTTQ1t932g8LUT7G`.
+- **Plex library:** Section 1, Plex TV Series scanner, agent `tv.plex.agents.series`. Token: `GNEaLTTQ1t932g8LUT7G`.
 - **Disk limit:** 90% threshold. Watched videos deleted first, then oldest unwatched.
 - **`--max-downloads 1` exits non-zero:** This is expected — not a real error.
 - **Video IDs starting with `-`:** Always use `grep -qF --` to avoid flag interpretation.

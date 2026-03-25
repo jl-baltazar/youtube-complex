@@ -15,7 +15,7 @@ SLEEP_SECONDS=3600       # 1 hour
 MAX_DISK_USAGE_PCT=90    # Start cleanup when disk usage reaches this %
 PLEX_TOKEN="GNEaLTTQ1t932g8LUT7G"
 PLEX_URL="http://localhost:32400"
-PLEX_SECTION=6
+PLEX_SECTION=1
 PLEX_MEDIA_PREFIX="/media/youtube"  # Path as seen by Plex container
 
 # Detect valid cookies
@@ -181,11 +181,11 @@ while true; do
         continue
     fi
 
-    # Download latest video from each channel
+    # Download latest video from each channel (randomized order each cycle)
     ok_count=0 err_count=0 total_count=0
+    SHUFFLED_CHANNELS=$(grep -vE '^\s*#|^\s*$' "${CHANNELS_FILE}" | sort -R)
 
     while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// }" ]] && continue
 
         total_count=$((total_count + 1))
@@ -210,7 +210,7 @@ while true; do
 
         enforce_storage_limit
 
-    done < "${CHANNELS_FILE}"
+    done <<< "$SHUFFLED_CHANNELS"
 
     log "Download done: ${total_count} channels, ${ok_count} OK, ${err_count} errors."
 

@@ -8,7 +8,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 PLEX_URL="http://localhost:32400"
 PLEX_TOKEN="GNEaLTTQ1t932g8LUT7G"
-PLEX_SECTION=6
+PLEX_SECTION=1
 MEDIA_DIR="/Users/jlgarcia/Movies/youtube"
 
 log() {
@@ -22,7 +22,7 @@ import json, subprocess, os, glob, urllib.parse
 
 PLEX_URL = "http://localhost:32400"
 PLEX_TOKEN = "GNEaLTTQ1t932g8LUT7G"
-PLEX_SECTION = 6
+PLEX_SECTION = 1
 MEDIA_DIR = "/Users/jlgarcia/Movies/youtube"
 
 # Get all shows
