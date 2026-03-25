@@ -35,7 +35,7 @@ COOKIES_FILE = BASE_DIR / "config" / "cookies.txt"
 MEDIA_DIR = Path.home() / "Movies" / "youtube"
 ARCHIVE_FILE = BASE_DIR / "state" / "archive.txt"
 LOG_FILE = BASE_DIR / "state" / "logs" / "stream-proxy.log"
-OUTPUT_TEMPLATE = str(MEDIA_DIR) + "/%(uploader)s/%(uploader)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s01 - %(title)s [%(id)s].%(ext)s"
+OUTPUT_TEMPLATE = str(MEDIA_DIR) + "/%(uploader)s/Season %(upload_date>%Y)s/%(uploader)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s01 - %(title)s [%(id)s].%(ext)s"
 
 PLEX_URL = "http://localhost:32400"
 PLEX_TOKEN = "GNEaLTTQ1t932g8LUT7G"
@@ -227,22 +227,32 @@ def send_plex_notification(title):
 
 # ── Background download ─────────────────────────────────────────────────────
 
-def cleanup_placeholder_for_video(video_id):
-    """Remove .placeholder sidecar and placeholder MP4 for a video about to be downloaded."""
+def find_all_placeholder_files(video_id):
+    """Find ALL .placeholder sidecars and their MP4s for a given video ID."""
+    results = []
     for ph_file in MEDIA_DIR.rglob("*.placeholder"):
         try:
             content = ph_file.read_text().strip()
             if content == video_id:
-                # Remove the placeholder MP4 so yt-dlp can write the real one
                 placeholder_mp4 = ph_file.with_suffix(".mp4")
-                if placeholder_mp4.exists() and placeholder_mp4.stat().st_size < 100000:
-                    placeholder_mp4.unlink()
-                    log(f"Removed placeholder MP4: {placeholder_mp4.name}")
-                ph_file.unlink()
-                log(f"Removed .placeholder: {ph_file.name}")
-                break
+                results.append((ph_file, placeholder_mp4 if placeholder_mp4.exists() else None))
         except Exception:
             continue
+    return results
+
+
+def cleanup_placeholder_for_video(video_id):
+    """Remove ALL .placeholder sidecars and placeholder MP4s after the real video is downloaded."""
+    matches = find_all_placeholder_files(video_id)
+    for ph_file, placeholder_mp4 in matches:
+        if placeholder_mp4 and placeholder_mp4.exists() and placeholder_mp4.stat().st_size < 100000:
+            placeholder_mp4.unlink()
+            log(f"Removed placeholder MP4: {placeholder_mp4.name}")
+        if ph_file.exists():
+            ph_file.unlink()
+            log(f"Removed .placeholder: {ph_file.name}")
+    if matches:
+        log(f"Cleaned up {len(matches)} placeholder(s) for {video_id}")
 
 
 def download_video_background(video_id):
@@ -258,9 +268,6 @@ def download_video_background(video_id):
             log(f"Skipping download of {video_id}: disk full after cleanup")
             send_plex_notification(f"No hay espacio en disco para descargar {video_id}")
             return
-
-        # Remove placeholder MP4 before downloading so yt-dlp can write the real one
-        cleanup_placeholder_for_video(video_id)
 
         url = f"https://www.youtube.com/watch?v={video_id}"
         cmd = [
@@ -283,6 +290,8 @@ def download_video_background(video_id):
 
         if filepath and os.path.exists(filepath):
             log(f"Background download complete: {filepath}")
+            # Now that real video exists, remove the placeholder files
+            cleanup_placeholder_for_video(video_id)
             video_title = Path(filepath).stem
             trigger_plex_scan()
             send_plex_notification(video_title)
