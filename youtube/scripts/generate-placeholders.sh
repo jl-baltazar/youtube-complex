@@ -54,23 +54,38 @@ generate_placeholder_mp4() {
 
 log "Fetching last ${COUNT} videos from: ${CHANNEL_URL}"
 
-# Get video IDs and titles via flat-playlist (fast)
-videos_json=$(yt-dlp \
+# Get video metadata + playlist title via flat-playlist (fast, single API call)
+flat_output=$(yt-dlp \
     --flat-playlist \
     --playlist-end "${COUNT}" \
-    --print '{"id":"%(id)s","title":"%(title)s"}' \
+    --print '{"id":"%(id)s","title":"%(title)s","upload_date":"%(upload_date)s","playlist_title":"%(playlist_title)s"}' \
     ${COOKIE_OPTION} \
     --no-warnings \
     "${CHANNEL_URL}/videos" 2>/dev/null) || true
 
-if [ -z "$videos_json" ]; then
+if [ -z "$flat_output" ]; then
     log "ERROR: No videos found for ${CHANNEL_URL}"
     exit 1
 fi
 
-# Resolve channel name from the first video
-first_id=$(echo "$videos_json" | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
-channel_name=$(yt-dlp --print "%(uploader)s" --skip-download ${COOKIE_OPTION} "https://www.youtube.com/watch?v=${first_id}" 2>/dev/null)
+# Deduplicate by video ID (flat-playlist can return the same video multiple times)
+videos_json=$(echo "$flat_output" | python3 -c "
+import sys, json
+seen = set()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        vid = obj.get('id','')
+        if vid and vid not in seen:
+            seen.add(vid)
+            print(line)
+    except: pass
+")
+
+# Extract channel name from playlist_title field (e.g. "Man City - Videos" → "Man City")
+channel_name=$(echo "$flat_output" | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('playlist_title',''))" 2>/dev/null | sed 's/ - Videos$//' || true)
 
 if [ -z "$channel_name" ] || [ "$channel_name" = "NA" ]; then
     channel_name=$(echo "$CHANNEL_URL" | sed 's|.*/@@\?||; s|/.*||')
@@ -78,8 +93,8 @@ fi
 
 log "Channel: ${channel_name}"
 
-channel_dir="${MEDIA_DIR}/${channel_name}"
-mkdir -p "${channel_dir}"
+channel_base="${MEDIA_DIR}/${channel_name}"
+mkdir -p "${channel_base}"
 
 created=0
 skipped=0
@@ -89,6 +104,7 @@ while IFS= read -r line; do
 
     video_id=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
     title=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin)['title'])" 2>/dev/null)
+    raw_date=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('upload_date',''))" 2>/dev/null || true)
 
     [ -z "$video_id" ] && continue
 
@@ -100,13 +116,13 @@ while IFS= read -r line; do
 
     # Skip if a real mp4 already exists (check info.json for video ID)
     already_exists=false
-    for info_file in "${channel_dir}"/*.info.json; do
-        [ -f "$info_file" ] || continue
+    while IFS= read -r info_file; do
+        [ -z "$info_file" ] && continue
         if grep -q "\"id\": \"${video_id}\"" "$info_file" 2>/dev/null; then
             already_exists=true
             break
         fi
-    done
+    done < <(find "${channel_base}" -name "*.info.json" 2>/dev/null)
     if $already_exists; then
         skipped=$((skipped + 1))
         continue
@@ -116,11 +132,11 @@ while IFS= read -r line; do
     placeholder_exists=false
     while IFS= read -r pf; do
         [ -z "$pf" ] && continue
-        if grep -q "$video_id" "$pf" 2>/dev/null; then
+        if grep -qF -- "$video_id" "$pf" 2>/dev/null; then
             placeholder_exists=true
             break
         fi
-    done < <(find "${channel_dir}" -name "*.placeholder" 2>/dev/null)
+    done < <(find "${channel_base}" -name "*.placeholder" 2>/dev/null)
     if $placeholder_exists; then
         skipped=$((skipped + 1))
         continue
@@ -129,20 +145,23 @@ while IFS= read -r line; do
     # Sanitize filename
     safe_title=$(echo "$title" | sed 's/[\/\\:*?"<>|]//g' | head -c 180)
 
-    # Get upload date for proper naming
-    upload_date=$(yt-dlp --print "%(upload_date>%Y-%m-%d)s" --skip-download ${COOKIE_OPTION} \
-        "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "unknown")
-
-    # SxxEyy format: Season=year, Episode=MMDD+index for unique episodes per day
-    year=$(echo "$upload_date" | cut -d'-' -f1)
-    mmdd=$(echo "$upload_date" | cut -d'-' -f2,3 | tr -d '-')
-    existing_count=$(find "${channel_dir}" -maxdepth 1 -name "${channel_name} - S${year}E${mmdd}*" -name "*.mp4" 2>/dev/null | wc -l | tr -d ' ')
+    # Upload date from flat-playlist data (format: YYYYMMDD or NA)
+    if [ -n "$raw_date" ] && [ "$raw_date" != "NA" ] && [ ${#raw_date} -eq 8 ]; then
+        year="${raw_date:0:4}"
+        mmdd="${raw_date:4:4}"
+    else
+        year=$(date +%Y)
+        mmdd=$(date +%m%d)
+    fi
+    season_dir="${channel_base}/Season ${year}"
+    mkdir -p "${season_dir}"
+    existing_count=$(find "${season_dir}" -maxdepth 1 -name "${channel_name} - S${year}E${mmdd}*" -name "*.mp4" 2>/dev/null | wc -l | tr -d ' ')
     ep_index=$(printf "%02d" $((existing_count + 1)))
 
     base_name="${channel_name} - S${year}E${mmdd}${ep_index} - ${safe_title} [${video_id}]"
-    mp4_file="${channel_dir}/${base_name}.mp4"
-    placeholder_file="${channel_dir}/${base_name}.placeholder"
-    thumb_file="${channel_dir}/${base_name}.jpg"
+    mp4_file="${season_dir}/${base_name}.mp4"
+    placeholder_file="${season_dir}/${base_name}.placeholder"
+    thumb_file="${season_dir}/${base_name}.jpg"
 
     # Generate placeholder MP4
     log "Creating placeholder: ${safe_title}"
@@ -154,16 +173,9 @@ while IFS= read -r line; do
     # Write sidecar with video ID
     echo "$video_id" > "$placeholder_file"
 
-    # Download thumbnail
-    yt-dlp --skip-download --write-thumbnail --convert-thumbnails jpg \
-        -o "${channel_dir}/${base_name}" \
-        ${COOKIE_OPTION} \
-        "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || true
-
-    # Rename thumbnail if yt-dlp used a different name
-    for f in "${channel_dir}/${base_name}".webp "${channel_dir}/${base_name}".png; do
-        [ -f "$f" ] && mv "$f" "$thumb_file" 2>/dev/null
-    done
+    # Download thumbnail directly from YouTube (no auth needed)
+    curl -s -o "$thumb_file" "https://i.ytimg.com/vi/${video_id}/maxresdefault.jpg" 2>/dev/null || \
+    curl -s -o "$thumb_file" "https://i.ytimg.com/vi/${video_id}/hqdefault.jpg" 2>/dev/null || true
 
     created=$((created + 1))
 
