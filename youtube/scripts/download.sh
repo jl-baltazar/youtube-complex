@@ -15,7 +15,7 @@ SLEEP_SECONDS=3600       # 1 hour
 MAX_DISK_USAGE_PCT=90    # Start cleanup when disk usage reaches this %
 PLEX_TOKEN="GNEaLTTQ1t932g8LUT7G"
 PLEX_URL="http://localhost:32400"
-PLEX_SECTION=6
+PLEX_SECTION=1
 PLEX_MEDIA_PREFIX="/media/youtube"  # Path as seen by Plex container
 
 # Detect valid cookies

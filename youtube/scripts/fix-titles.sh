@@ -8,7 +8,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 PLEX_URL="http://localhost:32400"
 PLEX_TOKEN="GNEaLTTQ1t932g8LUT7G"
-PLEX_SECTION=6
+PLEX_SECTION=1
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"

@@ -3,6 +3,8 @@
 # Placeholders trigger on-demand download when played in Plex.
 
 # Noticias / Política
+https://www.youtube.com/@GrupoFormula-RF
+https://www.youtube.com/@TelediarioMx
 https://www.youtube.com/@AristeguiNoticias
 https://www.youtube.com/@SinEmbargoAlAire
 https://www.youtube.com/@Grillonautas2
