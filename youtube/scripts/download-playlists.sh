@@ -40,6 +40,9 @@ download_playlist() {
     local custom_name="${2:-}"
 
     local label rc
+    local tmp_log
+    tmp_log=$(mktemp)
+
     if [[ -n "$custom_name" ]]; then
         label="$custom_name"
         local output_template="${MEDIA_DIR}/${custom_name}/${custom_name} - S01E%(playlist_index&{:03d})s - %(title)s [%(id)s].%(ext)s"
@@ -48,7 +51,7 @@ download_playlist() {
         yt-dlp --config-location "${PLAYLIST_CONFIG}" \
             -o "$output_template" \
             "${COOKIE_OPTION[@]}" \
-            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"
+            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" "$tmp_log"
         rc="${PIPESTATUS[0]}"
         set -e
         register_protected_folder "$custom_name"
@@ -60,7 +63,7 @@ download_playlist() {
         set +e
         yt-dlp --config-location "${PLAYLIST_CONFIG}" \
             "${COOKIE_OPTION[@]}" \
-            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log"
+            "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" "$tmp_log"
         rc="${PIPESTATUS[0]}"
         set -e
         [[ -n "$playlist_title" ]] && register_protected_folder "$playlist_title"
@@ -68,9 +71,12 @@ download_playlist() {
 
     if [[ "$rc" -eq 0 ]]; then
         log "OK: ${label}"
+    elif grep -qiE 'has already been recorded in the archive' "$tmp_log"; then
+        log "OK (already archived): ${label}"
     else
         log "ERROR (exit $rc): ${label}"
     fi
+    rm -f "$tmp_log"
 }
 
 # Process all playlists from config file
