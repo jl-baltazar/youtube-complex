@@ -1,10 +1,13 @@
 # Cookies (sensitive)
 youtube/config/cookies.txt
+youtube/config/cookies.txt.bak.*
+
+# NAS / SMB credentials (sensitive) — use nas.env.example as template
+youtube/config/nas.env
 
 # State files (local, not portable)
-youtube/state/archive.txt
-youtube/state/archive.txt.bak
-youtube/state/logs/
+youtube/state/
+youtube/logs/
 
 # Plex data (large, local)
 plex/config/
@@ -13,3 +16,6 @@ plex/config.backup-*/
 
 # Environment variables
 .env
+
+# Claude Code session/scheduler data
+.claude/

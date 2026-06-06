@@ -8,7 +8,12 @@ CONFIG_DIR="${BASE_DIR}/config"
 STATE_DIR="${BASE_DIR}/state"
 PLAYLISTS_FILE="${CONFIG_DIR}/playlists.txt"
 PLAYLIST_CONFIG="${CONFIG_DIR}/yt-dlp-playlist.conf"
-MEDIA_DIR="/Users/jlgarcia/Movies/youtube"
+NAS_SHARE="USB_TOSHIBA_EXTERNAL_USB_a_2"
+# Use MEDIA_DIR from parent (download.sh) if available, else detect actual mount
+if [[ -z "${MEDIA_DIR:-}" ]]; then
+    actual_mount=$(mount | grep "${NAS_SHARE}" | sed -E 's|.* on (/Volumes/[^ ]+) .*|\1|' | head -1)
+    MEDIA_DIR="${actual_mount}/youtube"
+fi
 PROTECTED_FILE="${STATE_DIR}/playlist-folders.txt"
 LOG_DIR="${STATE_DIR}/logs"
 

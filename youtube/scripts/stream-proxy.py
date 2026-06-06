@@ -32,14 +32,14 @@ os.environ["PATH"] = "/usr/local/bin:/opt/homebrew/bin:" + os.environ.get("PATH"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 COOKIES_FILE = BASE_DIR / "config" / "cookies.txt"
-MEDIA_DIR = Path.home() / "Movies" / "youtube"
+MEDIA_DIR = Path("/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube")
 ARCHIVE_FILE = BASE_DIR / "state" / "archive.txt"
 LOG_FILE = BASE_DIR / "state" / "logs" / "stream-proxy.log"
 OUTPUT_TEMPLATE = str(MEDIA_DIR) + "/%(uploader)s/Season %(upload_date>%Y)s/%(uploader)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s01 - %(title)s [%(id)s].%(ext)s"
 
-PLEX_URL = "http://localhost:32400"
-PLEX_TOKEN = "GNEaLTTQ1t932g8LUT7G"
-PLEX_SECTION = "1"
+PLEX_URL = "http://192.168.1.78:32400"
+PLEX_TOKEN = "PY1xBcA7QT9r6swusu1x"
+PLEX_SECTION = "9"
 DISK_LIMIT_PCT = 90
 
 # Track in-progress downloads to avoid duplicates

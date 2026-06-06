@@ -11,7 +11,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="${BASE_DIR}/config"
-MEDIA_DIR="/Users/jlgarcia/Movies/youtube"
+MEDIA_DIR="/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube"
 PROXY_PORT=9090
 PROXY_HOST="192.168.1.163"  # Plex runs in Docker, needs host reference
 COUNT="${2:-10}"

@@ -15,7 +15,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="${BASE_DIR}/config"
-MEDIA_DIR="/Users/jlgarcia/Movies/youtube"
+MEDIA_DIR="/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube"
 ARCHIVE_FILE="${BASE_DIR}/state/archive.txt"
 COUNT="${2:-10}"
 CHANNEL_URL="${1:?Usage: generate-placeholders.sh <channel_url> [count]}"
