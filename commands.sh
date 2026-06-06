@@ -13,9 +13,8 @@
 #   bash commands.sh restart-proxy       # Reiniciar streaming proxy
 #   bash commands.sh stop-proxy          # Detener streaming proxy
 #   bash commands.sh start-proxy         # Iniciar streaming proxy
-#   bash commands.sh plex-start          # Iniciar contenedor Plex
-#   bash commands.sh plex-stop           # Detener contenedor Plex
-#   bash commands.sh plex-restart        # Reiniciar contenedor Plex
+#   bash commands.sh plex-status         # Estado del Plex remoto
+#   bash commands.sh plex-sections       # Listar bibliotecas del Plex remoto
 #   bash commands.sh plex-scan           # Escanear librería Plex
 #   bash commands.sh fix-titles          # Corregir títulos en Plex
 #   bash commands.sh fix-posters         # Subir avatares como posters
@@ -47,9 +46,12 @@ SCRIPTS_DIR="$BASE_DIR/youtube/scripts"
 LOGS_DIR="$BASE_DIR/youtube/state/logs"
 CONFIG_DIR="$BASE_DIR/youtube/config"
 STATE_DIR="$BASE_DIR/youtube/state"
-MEDIA_DIR="$HOME/Movies/youtube"
-PLEX_TOKEN="GNEaLTQ1t932g8LUT7G"
-PLEX_SECTION=6
+# MEDIA_DIR se resuelve dinámicamente: el mount SMB a veces cae en .../USB_TOSHIBA_EXTERNAL_USB_a_2-1
+_nas_mount="$(mount | sed -nE 's|.* on (/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2[^ ]*) .*|\1|p' | head -1)"
+MEDIA_DIR="${_nas_mount:-/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2}/youtube"
+PLEX_URL="http://192.168.1.78:32400"
+PLEX_TOKEN="PY1xBcA7QT9r6swusu1x"
+PLEX_SECTION=9
 
 # --- Colores ---
 RED='\033[0;31m'
@@ -97,10 +99,10 @@ yt_status() {
         _err "stream-proxy.py — no cargado"
     fi
 
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^plex$'; then
-        _ok "Plex container — corriendo"
+    if curl -s --connect-timeout 3 "${PLEX_URL}/identity?X-Plex-Token=${PLEX_TOKEN}" -H "Accept: application/json" &>/dev/null; then
+        _ok "Plex remoto (192.168.1.78) — respondiendo"
     else
-        _err "Plex container — detenido"
+        _err "Plex remoto (192.168.1.78) — no responde"
     fi
 
     # Disco
@@ -245,29 +247,41 @@ yt_start_proxy() {
 # ============================================================================
 # PLEX — Contenedor Docker
 # ============================================================================
-yt_plex_start() {
-    _header "Iniciando Plex"
-    cd "$BASE_DIR" && bash start-plex.sh
-    _ok "Plex iniciado"
+yt_plex_status() {
+    _header "Estado del Plex remoto"
+    local resp
+    if resp=$(curl -s --connect-timeout 5 "${PLEX_URL}/identity?X-Plex-Token=${PLEX_TOKEN}" -H "Accept: application/json" 2>/dev/null); then
+        local name version
+        name=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin).get('MediaContainer',{}); print(d.get('friendlyName','?'))" 2>/dev/null)
+        version=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin).get('MediaContainer',{}); print(d.get('version','?'))" 2>/dev/null)
+        _ok "Server: $name (v$version)"
+    else
+        _err "No se puede conectar a ${PLEX_URL}"
+    fi
 }
 
-yt_plex_stop() {
-    _header "Deteniendo Plex"
-    cd "$BASE_DIR" && docker compose down
-    _ok "Plex detenido"
-}
-
-yt_plex_restart() {
-    _header "Reiniciando Plex"
-    cd "$BASE_DIR" && docker compose restart plex
-    _ok "Plex reiniciado"
+yt_plex_sections() {
+    _header "Bibliotecas del Plex remoto"
+    curl -s --connect-timeout 5 "${PLEX_URL}/library/sections?X-Plex-Token=${PLEX_TOKEN}" -H "Accept: application/json" 2>/dev/null \
+    | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for d in data.get('MediaContainer', {}).get('Directory', []):
+    locs = ', '.join(loc['path'] for loc in d.get('Location', []))
+    print(f\"  Section {d['key']}: {d['title']} ({d['type']}) — {locs}\")
+" 2>/dev/null || _err "No se pudo conectar"
 }
 
 yt_plex_scan() {
-    _header "Escaneando librería Plex (sección $PLEX_SECTION)"
-    docker exec -e LD_LIBRARY_PATH=/usr/lib/plexmediaserver plex \
-        "/usr/lib/plexmediaserver/Plex Media Scanner" --scan --section "$PLEX_SECTION"
-    _ok "Escaneo completado"
+    _header "Escaneando librería Plex remoto (sección $PLEX_SECTION)"
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+        -X POST "${PLEX_URL}/library/sections/${PLEX_SECTION}/refresh?X-Plex-Token=${PLEX_TOKEN}" 2>/dev/null)
+    if [[ "$http_code" == "200" ]]; then
+        _ok "Escaneo disparado"
+    else
+        _err "Falló el escaneo (HTTP $http_code)"
+    fi
 }
 
 # ============================================================================
@@ -301,8 +315,9 @@ yt_logs_proxy() {
 }
 
 yt_logs_plex() {
-    _header "Logs de Plex (últimas 50 líneas)"
-    docker logs --tail 50 plex 2>/dev/null || _err "Container plex no encontrado"
+    _header "Logs de Plex remoto"
+    _warn "Plex corre en un server remoto (192.168.1.78) — logs no accesibles desde aquí"
+    _info "Usa la web UI: ${PLEX_URL}/web o accede al server directamente"
 }
 
 yt_logs_follow() {
@@ -315,7 +330,7 @@ yt_logs_follow() {
 # ============================================================================
 yt_disk() {
     _header "Uso de disco"
-    df -h "$MEDIA_DIR" 2>/dev/null || df -h "$HOME/Movies"
+    df -h "$MEDIA_DIR" 2>/dev/null || df -h /Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2
     echo ""
     du -sh "$MEDIA_DIR" 2>/dev/null || true
     echo ""
@@ -390,7 +405,7 @@ yt_playlists() {
     done < "$playlists_file"
     echo ""
     _info "Total: $count playlist(s)"
-    _info "Videos en: $HOME/Movies/youtube/ (protegidos del cleanup)"
+    _info "Videos en: /Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube/ (protegidos del cleanup)"
 }
 
 yt_add_playlist() {
@@ -444,20 +459,18 @@ yt_placeholders() {
 # STOP-ALL / START-ALL
 # ============================================================================
 yt_stop_all() {
-    _header "Deteniendo todos los servicios"
+    _header "Deteniendo todos los servicios locales"
     launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
     launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
-    cd "$BASE_DIR" && docker compose down 2>/dev/null || true
-    _ok "Todos los servicios detenidos"
+    _ok "Servicios locales detenidos (Plex corre en server remoto)"
 }
 
 yt_start_all() {
-    _header "Iniciando todos los servicios"
-    cd "$BASE_DIR" && bash start-plex.sh
+    _header "Iniciando todos los servicios locales"
     launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
     launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
     sleep 3
-    _ok "Todos los servicios iniciados"
+    _ok "Servicios locales iniciados (Plex corre en server remoto)"
     yt_status
 }
 
@@ -497,9 +510,8 @@ _usage() {
     echo "  restart-proxy   Reiniciar proxy"
     echo ""
     echo -e "${BOLD}Plex:${NC}"
-    echo "  plex-start      Iniciar contenedor"
-    echo "  plex-stop       Detener contenedor"
-    echo "  plex-restart    Reiniciar contenedor"
+    echo "  plex-status     Estado del Plex remoto"
+    echo "  plex-sections   Listar bibliotecas del Plex remoto"
     echo "  plex-scan       Escanear librería"
     echo "  fix-titles      Corregir títulos de episodios"
     echo "  fix-posters     Subir avatares como posters"
@@ -538,9 +550,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         restart-proxy)  yt_restart_proxy ;;
         stop-proxy)     yt_stop_proxy ;;
         start-proxy)    yt_start_proxy ;;
-        plex-start)     yt_plex_start ;;
-        plex-stop)      yt_plex_stop ;;
-        plex-restart)   yt_plex_restart ;;
+        plex-status)    yt_plex_status ;;
+        plex-sections)  yt_plex_sections ;;
         plex-scan)      yt_plex_scan ;;
         fix-titles)     yt_fix_titles ;;
         fix-posters)    yt_fix_posters ;;
