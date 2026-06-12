@@ -108,8 +108,8 @@ delete_video() {
 
     log "Deleting: $(basename "$video_file")"
 
-    # rm can fail on NAS/SMB mounts (permission denied) — don't crash the script
-    rm -f "$video_file" 2>/dev/null || log "WARNING: Could not delete $video_file (permission denied?)"
+    # rm can fail on NAS/SMB mounts — capture real error for diagnosis
+    rm_err=$(rm -f "$video_file" 2>&1) || log "WARNING: Could not delete $video_file — ${rm_err:-unknown error}"
     rm -f "${base_name}.info.json" 2>/dev/null || true
     rm -f "${base_name}.jpg" "${base_name}.webp" "${base_name}.png" 2>/dev/null || true
     rm -f "${base_name}.description" 2>/dev/null || true
