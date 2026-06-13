@@ -1,21 +1,9 @@
 #!/bin/bash
-# Generates placeholder MP4 files for the last N videos of a YouTube channel.
-# Each placeholder is a 10-second H.264 video with "Descargando..." text.
-# A .placeholder sidecar file maps back to the YouTube video ID.
-# When played in Plex, the webhook triggers a background download of the real video.
-#
-# Usage: generate-placeholders.sh <channel_url> [count]
-# Example: generate-placeholders.sh "https://www.youtube.com/@Platzi" 10
-#
-# Does NOT affect download.sh or the regular hourly cycle.
-
 set -euo pipefail
-
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="${BASE_DIR}/config"
-MEDIA_DIR="/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube"
+MEDIA_DIR="${MEDIA_DIR:-/media/youtube}"
 ARCHIVE_FILE="${BASE_DIR}/state/archive.txt"
 COUNT="${2:-10}"
 CHANNEL_URL="${1:?Usage: generate-placeholders.sh <channel_url> [count]}"
@@ -29,13 +17,11 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
 }
 
-# Generate a 10-second placeholder MP4 with channel name, title, and "Descargando..." text
 generate_placeholder_mp4() {
     local output_file="$1"
     local channel="$2"
     local title="$3"
 
-    # Escape special characters for ffmpeg drawtext
     local safe_channel safe_title_line
     safe_channel=$(echo "$channel" | sed "s/[':]/\\\\&/g")
     safe_title_line=$(echo "$title" | sed "s/[':]/\\\\&/g" | cut -c1-60)
@@ -54,7 +40,6 @@ generate_placeholder_mp4() {
 
 log "Fetching last ${COUNT} videos from: ${CHANNEL_URL}"
 
-# Get video metadata + playlist title via flat-playlist (fast, single API call)
 flat_output=$(yt-dlp \
     --flat-playlist \
     --playlist-end "${COUNT}" \
@@ -68,7 +53,6 @@ if [ -z "$flat_output" ]; then
     exit 1
 fi
 
-# Deduplicate by video ID (flat-playlist can return the same video multiple times)
 videos_json=$(echo "$flat_output" | python3 -c "
 import sys, json
 seen = set()
@@ -84,7 +68,6 @@ for line in sys.stdin:
     except: pass
 ")
 
-# Extract channel name from playlist_title field (e.g. "Man City - Videos" → "Man City")
 channel_name=$(echo "$flat_output" | head -1 | python3 -c "import sys,json; print(json.load(sys.stdin).get('playlist_title',''))" 2>/dev/null | sed 's/ - Videos$//' || true)
 
 if [ -z "$channel_name" ] || [ "$channel_name" = "NA" ]; then
@@ -108,13 +91,11 @@ while IFS= read -r line; do
 
     [ -z "$video_id" ] && continue
 
-    # Skip if already in archive (means download.sh already got it)
     if grep -qF -- "$video_id" "$ARCHIVE_FILE" 2>/dev/null; then
         skipped=$((skipped + 1))
         continue
     fi
 
-    # Skip if a real mp4 already exists (check info.json for video ID)
     already_exists=false
     while IFS= read -r info_file; do
         [ -z "$info_file" ] && continue
@@ -128,7 +109,6 @@ while IFS= read -r line; do
         continue
     fi
 
-    # Skip if placeholder already exists for this video ID
     placeholder_exists=false
     while IFS= read -r pf; do
         [ -z "$pf" ] && continue
@@ -142,10 +122,8 @@ while IFS= read -r line; do
         continue
     fi
 
-    # Sanitize filename
     safe_title=$(echo "$title" | sed 's/[\/\\:*?"<>|]//g' | head -c 180)
 
-    # Upload date from flat-playlist data (format: YYYYMMDD or NA)
     if [ -n "$raw_date" ] && [ "$raw_date" != "NA" ] && [ ${#raw_date} -eq 8 ]; then
         year="${raw_date:0:4}"
         mmdd="${raw_date:4:4}"
@@ -163,17 +141,14 @@ while IFS= read -r line; do
     placeholder_file="${season_dir}/${base_name}.placeholder"
     thumb_file="${season_dir}/${base_name}.jpg"
 
-    # Generate placeholder MP4
     log "Creating placeholder: ${safe_title}"
     if ! generate_placeholder_mp4 "$mp4_file" "$channel_name" "$safe_title"; then
         log "ERROR: ffmpeg failed for ${safe_title}, skipping"
         continue
     fi
 
-    # Write sidecar with video ID
     echo "$video_id" > "$placeholder_file"
 
-    # Download thumbnail directly from YouTube (no auth needed)
     curl -s -o "$thumb_file" "https://i.ytimg.com/vi/${video_id}/maxresdefault.jpg" 2>/dev/null || \
     curl -s -o "$thumb_file" "https://i.ytimg.com/vi/${video_id}/hqdefault.jpg" 2>/dev/null || true
 
