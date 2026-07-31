@@ -53,6 +53,9 @@ bash commands.sh restart-all     # Reiniciar todos los servicios
 
 ## Pending / Future
 
+> 📋 Lista viva de pendientes en [`TODO.md`](TODO.md) — revisar al inicio de cada sesión.
+
+
 - Batch rename existing `YYYY-MM-DD` videos to SxxEyy format.
 - iMessage/iCloud Drive watcher for downloading URLs sent from iPhone.
 - OAuth2 for yt-dlp to replace manual cookie refresh (cookies + PO token ya en su lugar; falta automatizar el refresh de cookies).
