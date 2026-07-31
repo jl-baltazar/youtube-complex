@@ -1,33 +1,46 @@
 services:
-  plex:
-    # Official Plex Media Server image
-    image: plexinc/pms-docker:latest
-    container_name: plex
+  # Proveedor de PO Token (bgutil): genera los tokens "proof-of-origin" que YouTube
+  # exige para evitar el "Sign in to confirm you're not a bot".
+  pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: yt-pot-provider
     restart: unless-stopped
 
-    # macOS Docker does not fully support host networking; use explicit port mappings instead.
-    ports:
-      - "32400:32400/tcp"  # Web UI & API
-      - "32400:32400/udp"  # GDM network discovery
-      - "32469:32469/tcp"  # DLNA server
-      - "32410:32410/udp"  # GDM network discovery
-      - "32412:32412/udp"  # GDM network discovery
-      - "32413:32413/udp"  # GDM network discovery
-      - "32414:32414/udp"  # GDM network discovery
-
+  downloader:
+    build: .
+    image: yt-complex
+    container_name: yt-downloader
+    restart: unless-stopped
+    depends_on:
+      - pot-provider
     volumes:
-      # Persistent Plex server configuration
-      - ./plex/config:/config
-      # Transcoding cache (can grow large)
-      - ./plex/transcode:/transcode
-      # Shared media volume (must match ingestion side)
-      - /Users/jlgarcia/Movies:/media
+      - ./youtube/config:/app/config
+      - ./youtube/state:/app/state
+      - media:/media/youtube
+    env_file: .env
+    command: bash /app/scripts/download.sh
 
-    environment:
-      # Adjust timezone as desired
-      - TZ=${TZ:-America/Los_Angeles}
-      # Match host user's UID/GID for seamless permissions
-      - PLEX_UID=501
-      - PLEX_GID=20
-      - PLEX_CLAIM=claim-767bSB11cnHsNwv64CCN
-      - ADVERTISE_IP=http://${HOST_IP:-127.0.0.1}:32400
+  stream-proxy:
+    build: .
+    image: yt-complex
+    container_name: yt-stream-proxy
+    restart: unless-stopped
+    ports:
+      - "${PROXY_PORT:-9090}:9090"
+    volumes:
+      - ./youtube/config:/app/config
+      - ./youtube/state:/app/state
+      - media:/media/youtube
+    env_file: .env
+    command: python3 /app/scripts/stream-proxy.py
+
+# The NAS is mounted directly by Docker (CIFS), so the stack is fully self-contained:
+# `docker compose up` mounts the share and starts downloading; `docker compose down`
+# stops everything. No dependency on the host macOS SMB mount / launchd automount.
+volumes:
+  media:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${NAS_HOST}/${NAS_SHARE}/youtube"
+      o: "username=${NAS_USER},password=${NAS_PASS},uid=${PLEX_UID},gid=${PLEX_GID},vers=${NAS_SMB_VERS},file_mode=0664,dir_mode=0775,noserverino"

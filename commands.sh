@@ -53,6 +53,10 @@ PLEX_URL="http://192.168.1.78:32400"
 PLEX_TOKEN="PY1xBcA7QT9r6swusu1x"
 PLEX_SECTION=9
 
+# Docker: el ciclo de descarga y el proxy corren como contenedores.
+# Prender/apagar = docker compose up/down (ver docker-compose.yml).
+_compose() { ( cd "$BASE_DIR" && docker compose "$@" ); }
+
 # --- Colores ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -73,30 +77,21 @@ _info()   { echo -e "  ${BLUE}→${NC} $1"; }
 yt_status() {
     _header "Estado del Sistema"
 
-    # Servicios launchd
-    echo -e "\n${BOLD}Servicios:${NC}"
-    if launchctl list com.jlgarcia.youtube-dl &>/dev/null; then
-        local pid
-        pid=$(launchctl list com.jlgarcia.youtube-dl 2>/dev/null | awk 'NR==2{print $1}')
-        if [[ "$pid" != "-" && -n "$pid" ]]; then
-            _ok "download.sh — corriendo (PID: $pid)"
+    # Servicios Docker
+    echo -e "\n${BOLD}Servicios (Docker):${NC}"
+    if docker info &>/dev/null; then
+        if docker ps --filter "name=yt-downloader" --filter "status=running" --format '{{.Names}}' | grep -q yt-downloader; then
+            _ok "yt-downloader — corriendo"
         else
-            _warn "download.sh — cargado pero sin proceso activo"
+            _err "yt-downloader — detenido (usa: commands.sh start-cycle)"
+        fi
+        if docker ps --filter "name=yt-stream-proxy" --filter "status=running" --format '{{.Names}}' | grep -q yt-stream-proxy; then
+            _ok "yt-stream-proxy — corriendo"
+        else
+            _err "yt-stream-proxy — detenido (usa: commands.sh start-proxy)"
         fi
     else
-        _err "download.sh — no cargado"
-    fi
-
-    if launchctl list com.jlgarcia.youtube-webhook &>/dev/null; then
-        local proxy_pid
-        proxy_pid=$(launchctl list com.jlgarcia.youtube-webhook 2>/dev/null | awk 'NR==2{print $1}')
-        if [[ "$proxy_pid" != "-" && -n "$proxy_pid" ]]; then
-            _ok "stream-proxy.py — corriendo (PID: $proxy_pid)"
-        else
-            _warn "stream-proxy.py — cargado pero sin proceso activo"
-        fi
-    else
-        _err "stream-proxy.py — no cargado"
+        _err "Docker no está corriendo — abre Docker Desktop"
     fi
 
     if curl -s --connect-timeout 3 "${PLEX_URL}/identity?X-Plex-Token=${PLEX_TOKEN}" -H "Accept: application/json" &>/dev/null; then
@@ -180,15 +175,10 @@ yt_cycle_status() {
 # SERVICIOS — Iniciar / Detener / Reiniciar
 # ============================================================================
 yt_restart_cycle() {
-    _header "Reiniciando ciclo de descarga"
-    launchctl stop com.jlgarcia.youtube-dl 2>/dev/null || true
-    sleep 1
-    launchctl start com.jlgarcia.youtube-dl 2>/dev/null || {
-        _warn "No se pudo iniciar via launchctl, intentando load..."
-        launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null
-    }
+    _header "Reiniciando ciclo de descarga (contenedor)"
+    _compose restart downloader
     sleep 2
-    if launchctl list com.jlgarcia.youtube-dl &>/dev/null; then
+    if docker ps --filter "name=yt-downloader" --filter "status=running" --format '{{.Names}}' | grep -q yt-downloader; then
         _ok "Ciclo reiniciado"
     else
         _err "No se pudo reiniciar el ciclo"
@@ -196,16 +186,16 @@ yt_restart_cycle() {
 }
 
 yt_stop_cycle() {
-    _header "Deteniendo ciclo de descarga"
-    launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
-    _ok "Ciclo detenido (unloaded)"
+    _header "Deteniendo ciclo de descarga (contenedor)"
+    _compose stop downloader
+    _ok "Ciclo detenido"
 }
 
 yt_start_cycle() {
-    _header "Iniciando ciclo de descarga"
-    launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
+    _header "Iniciando ciclo de descarga (contenedor)"
+    _compose up -d downloader
     sleep 2
-    if launchctl list com.jlgarcia.youtube-dl &>/dev/null; then
+    if docker ps --filter "name=yt-downloader" --filter "status=running" --format '{{.Names}}' | grep -q yt-downloader; then
         _ok "Ciclo iniciado"
     else
         _err "No se pudo iniciar el ciclo"
@@ -213,12 +203,8 @@ yt_start_cycle() {
 }
 
 yt_restart_proxy() {
-    _header "Reiniciando streaming proxy"
-    launchctl stop com.jlgarcia.youtube-webhook 2>/dev/null || true
-    sleep 1
-    launchctl start com.jlgarcia.youtube-webhook 2>/dev/null || {
-        launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null
-    }
+    _header "Reiniciando streaming proxy (contenedor)"
+    _compose restart stream-proxy
     sleep 2
     if curl -s --connect-timeout 2 http://localhost:9090/health &>/dev/null; then
         _ok "Proxy reiniciado y respondiendo"
@@ -228,14 +214,14 @@ yt_restart_proxy() {
 }
 
 yt_stop_proxy() {
-    _header "Deteniendo streaming proxy"
-    launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
-    _ok "Proxy detenido (unloaded)"
+    _header "Deteniendo streaming proxy (contenedor)"
+    _compose stop stream-proxy
+    _ok "Proxy detenido"
 }
 
 yt_start_proxy() {
-    _header "Iniciando streaming proxy"
-    launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
+    _header "Iniciando streaming proxy (contenedor)"
+    _compose up -d stream-proxy
     sleep 2
     if curl -s --connect-timeout 2 http://localhost:9090/health &>/dev/null; then
         _ok "Proxy iniciado y respondiendo"
@@ -459,18 +445,16 @@ yt_placeholders() {
 # STOP-ALL / START-ALL
 # ============================================================================
 yt_stop_all() {
-    _header "Deteniendo todos los servicios locales"
-    launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
-    launchctl unload ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
-    _ok "Servicios locales detenidos (Plex corre en server remoto)"
+    _header "Deteniendo todos los servicios (docker compose down)"
+    _compose down
+    _ok "Contenedores detenidos (Plex corre en server remoto)"
 }
 
 yt_start_all() {
-    _header "Iniciando todos los servicios locales"
-    launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist 2>/dev/null || true
-    launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist 2>/dev/null || true
+    _header "Iniciando todos los servicios (docker compose up -d)"
+    _compose up -d
     sleep 3
-    _ok "Servicios locales iniciados (Plex corre en server remoto)"
+    _ok "Contenedores iniciados (Plex corre en server remoto)"
     yt_status
 }
 

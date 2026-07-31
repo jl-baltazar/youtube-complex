@@ -16,6 +16,9 @@ Automated YouTube channel archival system with Plex Media Server integration and
 - **Video IDs starting with `-`:** Always use `grep -qF --` to avoid flag interpretation.
 - **`set -euo pipefail` in bash:** Pipes with `grep -q` or `find|sort|head|cut` can break. Use temp files or process substitution.
 - **Plex DB repair:** System `sqlite3` no puede leer la DB de Plex. Hay que usar `Plex SQLite` directamente en el server Windows remoto.
+- **Deployment = Docker (desde 2026-07-31):** El stack corre en Docker Compose, ya NO en launchd. Servicios: `downloader` (yt-downloader), `stream-proxy` (yt-stream-proxy, :9090) y `pot-provider` (yt-pot-provider, PO token). El NAS se monta DENTRO de Docker vía volumen CIFS (no depende del mount de macOS). Prender/apagar = `docker compose up -d` / `down`. Los LaunchAgents `com.jlgarcia.youtube-dl` y `com.jlgarcia.youtube-webhook` están deshabilitados.
+- **yt-dlp anti-bot:** YouTube exige (1) runtime de JS → `deno` horneado en la imagen (challenge nsig) y (2) **PO Token** → contenedor `pot-provider` (bgutil) + plugin `bgutil-ytdlp-pot-provider` + `--extractor-args youtubepot-bgutilhttp:base_url=http://pot-provider:4416` en `yt-dlp.conf`. Sin esto → "Sign in to confirm you're not a bot". Además, demasiados requests desde la misma IP en poco tiempo la marcan (rate-limit temporal); no re-escanear los 334 canales de golpe.
+- **NAS sirve nombres en Latin-1 (no UTF-8):** desde el Mac/CIFS los archivos con acentos NO se pueden borrar (`rm` y `find -delete` fallan con "No such file or directory"/"Operation not permitted"). La limpieza de `.part`/huérfanos y el borrado de vistos acentuados debe hacerse **desde el server Windows**. El NAS también limita sesiones SMB concurrentes (usar `docker exec yt-downloader`, no spawnear contenedores).
 
 ---
 
@@ -28,7 +31,7 @@ Automated YouTube channel archival system with Plex Media Server integration and
 
 ## Commands
 
-All recurring commands are centralized in `commands.sh` at the project root. Run `bash commands.sh help` for the full list. Key commands:
+All recurring commands are centralized in `commands.sh` at the project root (ahora envuelven `docker compose`). Run `bash commands.sh help` for the full list. También puedes usar Docker directo: `docker compose up -d` / `docker compose down` desde la raíz. Key commands:
 
 ```bash
 bash commands.sh status          # Estado general (servicios, disco, ciclo)
@@ -52,4 +55,6 @@ bash commands.sh restart-all     # Reiniciar todos los servicios
 
 - Batch rename existing `YYYY-MM-DD` videos to SxxEyy format.
 - iMessage/iCloud Drive watcher for downloading URLs sent from iPhone.
-- OAuth2 for yt-dlp to replace manual cookie refresh.
+- OAuth2 for yt-dlp to replace manual cookie refresh (cookies + PO token ya en su lugar; falta automatizar el refresh de cookies).
+- Throttle (sleep entre canales) en `download.sh` para no disparar el rate-limit de IP en el catch-up.
+- Limpieza de `.part`/huérfanos y borrado de vistos con nombres acentuados: correr desde Windows (el NAS Latin-1 no deja borrarlos desde el Mac).

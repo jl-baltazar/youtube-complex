@@ -1,23 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="${BASE_DIR}/config"
 STATE_DIR="${BASE_DIR}/state"
 PLAYLISTS_FILE="${CONFIG_DIR}/playlists.txt"
 PLAYLIST_CONFIG="${CONFIG_DIR}/yt-dlp-playlist.conf"
-NAS_SHARE="USB_TOSHIBA_EXTERNAL_USB_a_2"
-# Use MEDIA_DIR from parent (download.sh) if available, else detect actual mount
-if [[ -z "${MEDIA_DIR:-}" ]]; then
-    actual_mount=$(mount | grep "${NAS_SHARE}" | sed -E 's|.* on (/Volumes/[^ ]+) .*|\1|' | head -1)
-    MEDIA_DIR="${actual_mount}/youtube"
-fi
+ARCHIVE_FILE="${STATE_DIR}/archive.txt"
+MEDIA_DIR="${MEDIA_DIR:-/media/youtube}"
 PROTECTED_FILE="${STATE_DIR}/playlist-folders.txt"
 LOG_DIR="${STATE_DIR}/logs"
 
-# Detect valid cookies
 COOKIE_OPTION=()
 if [[ -s "${CONFIG_DIR}/cookies.txt" ]] && grep -qE '^\.' "${CONFIG_DIR}/cookies.txt"; then
     COOKIE_OPTION=(--cookies "${CONFIG_DIR}/cookies.txt")
@@ -26,7 +19,6 @@ fi
 mkdir -p "${LOG_DIR}" "${MEDIA_DIR}"
 touch "${PROTECTED_FILE}"
 
-# Register a folder name as protected from cleanup
 register_protected_folder() {
     local name="$1"
     if ! grep -qxF -- "$name" "${PROTECTED_FILE}" 2>/dev/null; then
@@ -38,8 +30,6 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] [playlists] $*" | tee -a "${LOG_DIR}/download.log"
 }
 
-# Download a single playlist
-# Args: $1 = URL, $2 = custom name (optional)
 download_playlist() {
     local url="$1"
     local custom_name="${2:-}"
@@ -54,6 +44,7 @@ download_playlist() {
         log "Downloading playlist: ${label} (${url})"
         set +e
         yt-dlp --config-location "${PLAYLIST_CONFIG}" \
+            --download-archive "${ARCHIVE_FILE}" \
             -o "$output_template" \
             "${COOKIE_OPTION[@]}" \
             "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" "$tmp_log"
@@ -67,6 +58,7 @@ download_playlist() {
         log "Downloading playlist: ${label}"
         set +e
         yt-dlp --config-location "${PLAYLIST_CONFIG}" \
+            --download-archive "${ARCHIVE_FILE}" \
             "${COOKIE_OPTION[@]}" \
             "$url" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" "$tmp_log"
         rc="${PIPESTATUS[0]}"
@@ -84,7 +76,6 @@ download_playlist() {
     rm -f "$tmp_log"
 }
 
-# Process all playlists from config file
 download_all_playlists() {
     if [[ ! -s "${PLAYLISTS_FILE}" ]]; then
         log "No playlists configured (${PLAYLISTS_FILE} is empty or missing). Skipping."
@@ -93,11 +84,9 @@ download_all_playlists() {
 
     local count=0
     while IFS= read -r line || [[ -n "$line" ]]; do
-        # Skip comments and empty lines
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// }" ]] && continue
 
-        # Parse: URL | Custom Name
         local url custom_name
         if [[ "$line" == *"|"* ]]; then
             url=$(echo "$line" | cut -d'|' -f1 | xargs)
@@ -114,7 +103,6 @@ download_all_playlists() {
     log "Processed ${count} playlist(s)."
 }
 
-# Allow direct invocation: download-playlists.sh [URL] [custom_name]
 if [[ $# -ge 1 ]]; then
     download_playlist "$1" "${2:-}"
 else

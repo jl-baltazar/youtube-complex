@@ -27,22 +27,24 @@ from pathlib import Path
 
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 9090
 
-# Ensure yt-dlp and ffmpeg are in PATH (launchd may not have full PATH)
-os.environ["PATH"] = "/usr/local/bin:/opt/homebrew/bin:" + os.environ.get("PATH", "")
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 COOKIES_FILE = BASE_DIR / "config" / "cookies.txt"
-MEDIA_DIR = Path("/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube")
+
+# All tunables from environment (set via .env / docker-compose)
+MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "/media/youtube"))
 ARCHIVE_FILE = BASE_DIR / "state" / "archive.txt"
 LOG_FILE = BASE_DIR / "state" / "logs" / "stream-proxy.log"
 OUTPUT_TEMPLATE = str(MEDIA_DIR) + "/%(uploader)s/Season %(upload_date>%Y)s/%(uploader)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s01 - %(title)s [%(id)s].%(ext)s"
 
-PLEX_URL = "http://192.168.1.78:32400"
-PLEX_TOKEN = "PY1xBcA7QT9r6swusu1x"
-PLEX_SECTION = "9"
+PLEX_URL = os.environ.get("PLEX_URL", "")
+PLEX_TOKEN = os.environ.get("PLEX_TOKEN", "")
+PLEX_SECTION = os.environ.get("PLEX_SECTION", "9")
+# Plex returns file paths using its own OS's separator (e.g. Z:\youtube\... on Windows).
+# PLEX_MEDIA_PREFIX is that prefix; we replace it with MEDIA_DIR to get the container path.
+PLEX_MEDIA_PREFIX = os.environ.get("PLEX_MEDIA_PREFIX", r"Z:\youtube")
+
 DISK_LIMIT_PCT = 90
 
-# Track in-progress downloads to avoid duplicates
 _downloading = set()
 _downloading_lock = threading.Lock()
 
@@ -58,10 +60,18 @@ def log(msg):
         pass
 
 
+def plex_path_to_local(container_path: str) -> str:
+    """Map a Plex-returned file path (may use backslashes) to the container's local path."""
+    normalized = container_path.replace("\\", "/")
+    prefix_normalized = PLEX_MEDIA_PREFIX.replace("\\", "/")
+    if normalized.startswith(prefix_normalized):
+        return str(MEDIA_DIR) + normalized[len(prefix_normalized):]
+    return normalized
+
+
 # ── Disk management ──────────────────────────────────────────────────────────
 
 def get_disk_usage_pct():
-    """Return disk usage percentage for the media directory."""
     try:
         usage = shutil.disk_usage(str(MEDIA_DIR))
         return int(usage.used * 100 / usage.total)
@@ -71,7 +81,6 @@ def get_disk_usage_pct():
 
 
 def get_watched_videos():
-    """Get list of watched video files from Plex (viewCount >= 1), oldest first."""
     watched = []
     try:
         url = (f"{PLEX_URL}/library/sections/{PLEX_SECTION}/allLeaves"
@@ -85,10 +94,8 @@ def get_watched_videos():
                 for media in ep.get("Media", []):
                     for part in media.get("Part", []):
                         container_path = part.get("file", "")
-                        local_path = container_path.replace(
-                            "/media/youtube", str(MEDIA_DIR))
+                        local_path = plex_path_to_local(container_path)
                         if os.path.exists(local_path):
-                            # Check it's not a placeholder
                             ph = Path(local_path).with_suffix(".placeholder")
                             if not ph.exists():
                                 mtime = os.path.getmtime(local_path)
@@ -96,12 +103,11 @@ def get_watched_videos():
     except Exception as e:
         log(f"Error fetching watched videos: {e}")
 
-    watched.sort()  # oldest first
+    watched.sort()
     return [path for _, path in watched]
 
 
 def get_oldest_videos():
-    """Get all non-placeholder MP4 files sorted by modification time (oldest first)."""
     videos = []
     for mp4 in MEDIA_DIR.rglob("*.mp4"):
         if mp4.with_suffix(".placeholder").exists():
@@ -112,15 +118,12 @@ def get_oldest_videos():
 
 
 def cleanup_disk():
-    """Free disk space by deleting watched videos first, then oldest unwatched.
-    Returns True if disk is now below the limit."""
     pct = get_disk_usage_pct()
     if pct < DISK_LIMIT_PCT:
         return True
 
     log(f"Disk at {pct}% (limit {DISK_LIMIT_PCT}%), starting cleanup...")
 
-    # Phase 1: delete watched videos
     for path in get_watched_videos():
         if get_disk_usage_pct() < DISK_LIMIT_PCT:
             log("Disk cleanup complete (watched videos)")
@@ -128,7 +131,6 @@ def cleanup_disk():
         try:
             size = os.path.getsize(path)
             os.unlink(path)
-            # Also remove sidecar files
             base = Path(path).with_suffix("")
             for ext in [".info.json", ".jpg", ".png", ".webp"]:
                 sidecar = Path(str(base) + ext)
@@ -138,7 +140,6 @@ def cleanup_disk():
         except Exception as e:
             log(f"Error deleting {path}: {e}")
 
-    # Phase 2: delete oldest unwatched
     for path in get_oldest_videos():
         if get_disk_usage_pct() < DISK_LIMIT_PCT:
             log("Disk cleanup complete (oldest videos)")
@@ -166,7 +167,6 @@ def cleanup_disk():
 # ── Plex helpers ─────────────────────────────────────────────────────────────
 
 def find_placeholder_by_file(file_path):
-    """Given a media file path, check if it has a .placeholder sidecar."""
     p = Path(file_path)
     placeholder = p.with_suffix(".placeholder")
     if placeholder.exists():
@@ -177,7 +177,6 @@ def find_placeholder_by_file(file_path):
 
 
 def find_placeholder_by_plex_key(rating_key):
-    """Look up a Plex item by ratingKey and check if it's a placeholder."""
     try:
         url = f"{PLEX_URL}/library/metadata/{rating_key}?X-Plex-Token={PLEX_TOKEN}"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -189,7 +188,7 @@ def find_placeholder_by_plex_key(rating_key):
         for media in media_list:
             for part in media.get("Part", []):
                 container_path = part.get("file", "")
-                local_path = container_path.replace("/media/youtube", str(MEDIA_DIR))
+                local_path = plex_path_to_local(container_path)
                 video_id, placeholder_file = find_placeholder_by_file(local_path)
                 if video_id:
                     return video_id, placeholder_file, local_path
@@ -199,7 +198,6 @@ def find_placeholder_by_plex_key(rating_key):
 
 
 def trigger_plex_scan():
-    """Trigger a Plex library scan for the YouTube section."""
     try:
         url = f"{PLEX_URL}/library/sections/{PLEX_SECTION}/refresh?X-Plex-Token={PLEX_TOKEN}"
         req = urllib.request.Request(url, method="GET")
@@ -210,25 +208,9 @@ def trigger_plex_scan():
         log(f"Failed to trigger Plex scan: {e}")
 
 
-def send_plex_notification(title):
-    """Send a notification to Plex clients that a video is ready."""
-    try:
-        msg = f"✅ {title} — listo para reproducir"
-        # Use Plex's butler notification endpoint
-        url = (f"{PLEX_URL}/:/plugins/com.plexapp.agents.none/messaging/send"
-               f"?X-Plex-Token={PLEX_TOKEN}")
-        # Fallback: use the Plex activity/notification via a simple log
-        # Plex doesn't have a clean push notification API, so we use the
-        # library scan + metadata update which causes Plex clients to refresh
-        log(f"Notification: {msg}")
-    except Exception as e:
-        log(f"Failed to send notification: {e}")
-
-
 # ── Background download ─────────────────────────────────────────────────────
 
 def find_all_placeholder_files(video_id):
-    """Find ALL .placeholder sidecars and their MP4s for a given video ID."""
     results = []
     for ph_file in MEDIA_DIR.rglob("*.placeholder"):
         try:
@@ -242,7 +224,6 @@ def find_all_placeholder_files(video_id):
 
 
 def cleanup_placeholder_for_video(video_id):
-    """Remove ALL .placeholder sidecars and placeholder MP4s after the real video is downloaded."""
     matches = find_all_placeholder_files(video_id)
     for ph_file, placeholder_mp4 in matches:
         if placeholder_mp4 and placeholder_mp4.exists() and placeholder_mp4.stat().st_size < 100000:
@@ -256,17 +237,14 @@ def cleanup_placeholder_for_video(video_id):
 
 
 def download_video_background(video_id):
-    """Download a YouTube video to disk in the background, replacing the placeholder."""
     with _downloading_lock:
         if video_id in _downloading:
             return
         _downloading.add(video_id)
 
     try:
-        # Check disk space first
         if not cleanup_disk():
             log(f"Skipping download of {video_id}: disk full after cleanup")
-            send_plex_notification(f"No hay espacio en disco para descargar {video_id}")
             return
 
         url = f"https://www.youtube.com/watch?v={video_id}"
@@ -290,11 +268,8 @@ def download_video_background(video_id):
 
         if filepath and os.path.exists(filepath):
             log(f"Background download complete: {filepath}")
-            # Now that real video exists, remove the placeholder files
             cleanup_placeholder_for_video(video_id)
-            video_title = Path(filepath).stem
             trigger_plex_scan()
-            send_plex_notification(video_title)
         else:
             log(f"Background download may have failed for {video_id}: rc={proc.returncode}")
     except Exception as e:
@@ -308,7 +283,7 @@ def download_video_background(video_id):
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # Suppress default logging
+        pass
 
     def do_GET(self):
         if self.path == "/health":
@@ -322,7 +297,6 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(status).encode())
             return
-
         self.send_error(404)
 
     def do_POST(self):
@@ -385,7 +359,6 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
         log(f"media.play: '{title}' (ratingKey={rating_key})")
 
-        # Check if this is a placeholder — trigger background download
         video_id, placeholder_file, mp4_path = find_placeholder_by_plex_key(rating_key)
 
         if not video_id:
@@ -409,6 +382,8 @@ def main():
     log(f"Webhook proxy starting on port {PORT}")
     log(f"  POST /webhook — Plex webhook receiver")
     log(f"  GET  /health  — Health check")
+    log(f"  MEDIA_DIR={MEDIA_DIR}")
+    log(f"  PLEX_URL={PLEX_URL}  section={PLEX_SECTION}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,205 +1,340 @@
 # YouTube + Plex Automated System
 
-Automated YouTube channel archival system that downloads videos and serves them via Plex Media Server, with on-demand streaming via placeholder system.
+Automated YouTube channel archival system. Downloads videos hourly, stores them on a NAS, and serves them via Plex Media Server. Runs entirely in Docker — deploy it on any Windows/Linux server that has access to your NAS and Plex.
 
 ---
 
 ## Architecture
 
 ```
-iPhone (future: iCloud Drive watcher)
-        │
-        ▼
-┌─────────────────────────────────┐
-│  download.sh (loop every 1hr)   │ ← launchd: com.jlgarcia.youtube-dl
-│  - reads channels.txt           │
-│  - yt-dlp with cookies + config │
-│  - enforces 90% disk limit      │
-│  - triggers Plex scan           │
-│  - runs fix-titles + fix-posters│
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│  ~/Movies/youtube/{channel}/    │  ← H.264/AAC MP4 files
-│  {Channel} - SxxxxEyyyyzz -    │    SxxEyy naming (Season=year, Episode=MMDD+index)
-│  {Title} [{video_id}].mp4      │
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│  Plex Media Server (Docker)     │ ← launchd: com.jlgarcia.plex-start
-│  Port 32400, Section 6          │
-│  Plex Series Scanner            │
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│  stream-proxy.py (port 9090)    │ ← launchd: com.jlgarcia.youtube-webhook
-│  - /stream/:id  → YouTube CDN  │   .strm files point here for streaming
-│  - /webhook     → Plex events  │   background download after streaming
-│  - /health      → status check │
-└─────────────────────────────────┘
+                    ┌──────────────────────────────────────┐
+                    │         Windows Server               │
+                    │                                      │
+                    │  ┌──────────────────────────────┐   │
+                    │  │  Docker: yt-downloader       │   │
+                    │  │  download.sh (loop, 1hr)     │   │
+                    │  │  - reads config/channels.txt │   │
+                    │  │  - yt-dlp H.264 + cookies    │   │
+                    │  │  - enforces 90% disk limit   │   │
+                    │  │  - triggers Plex scan        │   │
+                    │  └──────────────┬───────────────┘   │
+                    │                 │ writes to          │
+                    │  ┌──────────────▼───────────────┐   │
+                    │  │  NAS (Z:\youtube)            │   │
+                    │  │  {Channel}/Season {YYYY}/    │   │
+                    │  │  {Channel} - SxxxxEyyyy -   │   │
+                    │  │  {Title} [{id}].mp4          │   │
+                    │  └──────────────┬───────────────┘   │
+                    │                 │ library path       │
+                    │  ┌──────────────▼───────────────┐   │
+                    │  │  Plex Media Server           │   │
+                    │  │  Port 32400, Section 9       │   │
+                    │  │  Z:\youtube → TV Shows       │   │
+                    │  └──────────────────────────────┘   │
+                    │                                      │
+                    │  ┌──────────────────────────────┐   │
+                    │  │  Docker: yt-stream-proxy     │   │
+                    │  │  stream-proxy.py (port 9090) │   │
+                    │  │  POST /webhook → on-demand   │   │
+                    │  │  GET  /health  → status      │   │
+                    │  └──────────────────────────────┘   │
+                    └──────────────────────────────────────┘
 ```
 
-### Placeholder / Streaming Flow
-1. `generate-placeholders.sh <channel_url> [count]` creates `.strm` files pointing to `http://host.docker.internal:9090/stream/{video_id}`
-2. Plex sees `.strm` files as playable episodes (with thumbnails)
-3. When played, Plex requests the stream URL → `stream-proxy.py` fetches the YouTube CDN URL via `yt-dlp --get-url` and proxies the stream
-4. Simultaneously, the proxy triggers a background download (H.264, full quality) for future offline plays
-5. Once downloaded, the `.strm` and `.placeholder` sidecar are removed; Plex scans and shows the local file
-6. Future plays serve directly from disk
+### On-Demand Placeholder Flow
+1. `generate-placeholders.sh <channel_url> [N]` creates short placeholder MP4s ("Descargando...") for the last N videos of a channel
+2. A `.placeholder` sidecar stores the YouTube video ID
+3. When played in Plex, the webhook (`POST /webhook`) fires → `stream-proxy.py` starts a background download of the real video
+4. Once downloaded, the placeholder MP4 and `.placeholder` sidecar are removed; Plex rescans
+5. Future plays serve from disk
+
+---
+
+## Prerequisites
+
+- **Windows Server** (or any Linux host) with:
+  - Direct access to the NAS share (mapped drive or UNC path)
+  - Plex Media Server already installed and running
+- **Docker Desktop** (Windows) — see [Installation](#1-install-docker-desktop-windows)
+- **YouTube cookies** exported from Chrome — required for authenticated downloads
+
+---
+
+## Deployment
+
+### 1. Install Docker Desktop (Windows)
+
+1. Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+2. Run the installer — enable **WSL2** when prompted (recommended backend)
+3. Restart the machine
+4. Open Docker Desktop and wait for it to start (whale icon in taskbar)
+5. Verify: open PowerShell and run `docker --version`
+
+> **Note:** If Docker Desktop asks about WSL2 kernel update, follow the link it provides and install it before continuing.
+
+---
+
+### 2. Clone the Repository
+
+Open **PowerShell** (or Windows Terminal) and run:
+
+```powershell
+git clone https://github.com/jl-baltazar/youtube-complex.git
+cd youtube-complex
+```
+
+If git is not installed: download from [git-scm.com](https://git-scm.com/download/win).
+
+---
+
+### 3. Configure Environment Variables
+
+Copy the example file and edit it:
+
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+Fill in every value:
+
+```env
+# Path to the youtube folder on the NAS, as Docker can see it.
+# Use forward slashes. Examples:
+#   Mapped drive:  MEDIA_PATH=Z:/youtube
+#   UNC path:      MEDIA_PATH=//192.168.1.130/USB_TOSHIBA_EXTERNAL_USB_a_2/youtube
+MEDIA_PATH=Z:/youtube
+
+# Plex server URL and credentials
+PLEX_URL=http://192.168.1.78:32400
+PLEX_TOKEN=your_plex_token_here
+PLEX_SECTION=9
+
+# Path to the youtube folder as Plex sees it (Windows path, backslashes OK)
+PLEX_MEDIA_PREFIX=Z:\youtube
+
+# Port for the on-demand proxy (must match the Plex webhook URL)
+PROXY_PORT=9090
+```
+
+**Finding your Plex token:** In Plex Web, open any item → click ··· → Get Info → View XML. The token appears in the URL as `X-Plex-Token=...`.
+
+> **Mapped drive vs UNC path:** If `Z:\` is a network-mapped drive, Docker Desktop (WSL2) may not see it directly. If that happens, set `MEDIA_PATH` to the UNC path (`//server/share/youtube`) instead, and add that path to Docker Desktop → Settings → Resources → File Sharing.
+
+---
+
+### 4. Add YouTube Cookies
+
+YouTube requires authentication cookies to avoid "Sign in to confirm you're not a bot" errors.
+
+1. Install the Chrome extension **"Get cookies.txt LOCALLY"**
+2. Go to [youtube.com](https://youtube.com) and make sure you are logged in
+3. Click the extension → **Export** → save as `cookies.txt`
+4. Copy the file to `youtube\config\cookies.txt`
+
+```powershell
+copy C:\Users\YourUser\Downloads\cookies.txt youtube\config\cookies.txt
+```
+
+> **Cookies expire** every few weeks. When downloads start failing with `LOGIN_REQUIRED`, re-export and overwrite this file.
+
+---
+
+### 5. Review Channel List
+
+Open `youtube\config\channels.txt` — one YouTube channel URL per line. Lines starting with `#` are comments.
+
+```
+# Fútbol
+https://www.youtube.com/@TUDN
+https://www.youtube.com/@FoxSports
+
+# Tech
+https://www.youtube.com/@Fireship
+```
+
+---
+
+### 6. Build and Start
+
+```powershell
+docker compose up -d --build
+```
+
+This builds the image and starts two containers:
+
+| Container | What it does |
+|---|---|
+| `yt-downloader` | Download loop — runs every hour, processes all channels |
+| `yt-stream-proxy` | Webhook proxy — listens on port 9090 for Plex play events |
+
+Check that both are running:
+
+```powershell
+docker compose ps
+```
+
+Watch the download logs:
+
+```powershell
+docker compose logs -f downloader
+```
+
+---
+
+### 7. Configure Plex Webhook (for on-demand placeholders)
+
+In Plex Web:
+
+1. Go to **Settings → Webhooks**
+2. Add webhook URL: `http://localhost:9090/webhook`
+3. Save
+
+Now when you play a placeholder video, the real download starts automatically in the background.
 
 ---
 
 ## Directory Structure
 
 ```
-~/youtube-complex/
-├── docker-compose.yml          # Plex container definition
-├── youtube-service.yml         # YouTube ingest container (not currently used — runs natively)
-├── start-plex.sh               # Detects local IP, starts Plex container
-├── .env                        # TZ, PLEX_UID, PLEX_GID
+youtube-complex/
+├── Dockerfile                  # Image: python:3.12-slim + ffmpeg + yt-dlp + imagemagick
+├── docker-compose.yml          # Services: downloader + stream-proxy
+├── .env                        # Your secrets — gitignored, never commit this
+├── .env.example                # Template for .env
 ├── youtube/
 │   ├── config/
-│   │   ├── channels.txt        # ~311 YouTube channel URLs (one per line, # for comments)
-│   │   ├── cookies.txt         # Netscape-format cookies exported from Chrome (required for downloads)
-│   │   └── yt-dlp.conf         # yt-dlp config: H.264 format, SxxEyy naming, archive, metadata
+│   │   ├── channels.txt        # YouTube channel URLs (one per line, # for comments)
+│   │   ├── playlists.txt       # YouTube playlists (URL | Custom Name, one per line)
+│   │   ├── cookies.txt         # Netscape cookies — gitignored, add manually
+│   │   ├── yt-dlp.conf         # yt-dlp options for channel downloads
+│   │   └── yt-dlp-playlist.conf  # yt-dlp options for playlist downloads
 │   ├── scripts/
-│   │   ├── download.sh         # Main loop: downloads latest video per channel every hour
-│   │   ├── stream-proxy.py     # Streaming proxy + Plex webhook receiver (port 9090)
-│   │   ├── generate-placeholders.sh  # Creates .strm placeholders for on-demand streaming
-│   │   ├── redownload-h264.sh  # One-time: re-downloads AV1/VP9 videos as H.264
-│   │   ├── fix-titles.sh       # Updates Plex episode titles from filenames via API
-│   │   ├── fix-posters.sh      # Uploads channel avatars as Plex show posters via API
-│   │   └── migrate-naming.sh   # One-time: migrates old naming to SxxEyy format
-│   └── state/
-│       ├── archive.txt         # yt-dlp download archive (video IDs already downloaded)
-│       └── logs/               # download.log, yt-dlp.log, stream-proxy.log, etc.
-├── plex/
-│   ├── config/                 # Plex server persistent config (database, plugins, etc.)
-│   └── transcode/              # Plex transcoding cache
+│   │   ├── download.sh               # Main hourly loop
+│   │   ├── download-playlists.sh     # Playlist downloader (called by download.sh)
+│   │   ├── stream-proxy.py           # Webhook receiver + health endpoint
+│   │   ├── generate-placeholders.sh  # Creates placeholder MP4s for on-demand
+│   │   ├── fix-titles.sh             # Syncs episode titles to Plex via API
+│   │   ├── fix-posters.sh            # Uploads channel avatars as show posters
+│   │   └── redownload-h264.sh        # One-time: re-downloads AV1/VP9 as H.264
+│   └── state/                        # Gitignored — created at runtime
+│       ├── archive.txt               # yt-dlp download archive (already-downloaded IDs)
+│       └── logs/                     # download.log, yt-dlp.log, stream-proxy.log, etc.
 ```
-
----
-
-## Key Configuration
-
-### File Naming Convention (SxxEyy)
-- **Format:** `{Channel} - S{YYYY}E{MMDD}{index} - {Title} [{video_id}].{ext}`
-- **Example:** `31 minutos - S2026E012601 - Objeción denegada (demo) [_dMhuinekUc].mp4`
-- **Season** = upload year (e.g., S2026)
-- **Episode** = MMDD + 2-digit index (e.g., E012601 = Jan 26, 1st video of the day)
-- **Why:** Prevents Plex from grouping same-day videos as "versions" of one episode
-
-### yt-dlp.conf
-- **Format:** `bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]` — H.264 preferred
-- **Output:** `~/Movies/youtube/%(uploader)s/%(uploader)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s01 - %(title)s [%(id)s].%(ext)s`
-- **Archive:** `state/archive.txt` prevents re-downloading
-- **Per-channel limits:** `--playlist-end 2` (check 2 most recent), `--max-downloads 1` (stop after first new)
-- **Metadata:** writes info.json, thumbnail (converted to jpg), embeds thumbnail + metadata
-
-### Plex
-- **Container:** `plexinc/pms-docker:latest`
-- **Ports:** 32400 (Web UI/API), 32469 (DLNA), GDM discovery
-- **Volumes:** `~/Movies` → `/media` (container path)
-- **Library:** Section 6, Plex Series Scanner
-- **Media prefix (container):** `/media/youtube`
-- **Webhook URL:** `http://host.docker.internal:9090/webhook` (configured in Plex Settings → Webhooks)
-
-### Cookies
-- **Location:** `youtube/config/cookies.txt`
-- **Format:** Netscape HTTP Cookie File (exported from Chrome via "Get cookies.txt LOCALLY" extension)
-- **Important:** Without valid cookies, ALL downloads fail with `Sign in to confirm you're not a bot`
-- **Expiry:** Cookies expire periodically — must be re-exported when downloads start failing
-
----
-
-## launchd Services
-
-| Plist | Script | Behavior |
-|---|---|---|
-| `com.jlgarcia.youtube-dl` | `download.sh` | RunAtLoad + KeepAlive — starts on login, restarts if killed |
-| `com.jlgarcia.plex-start` | `start-plex.sh` | RunAtLoad — starts Plex container on login |
-| `com.jlgarcia.youtube-webhook` | `stream-proxy.py --port 9090` | RunAtLoad + KeepAlive — streaming proxy + webhook |
-
-Logs go to `youtube/state/logs/`.
-
----
-
-## Scripts Detail
-
-### download.sh (main loop)
-1. Enforces storage limit (90% disk usage)
-   - Phase 1: deletes watched videos (via Plex API `viewCount>=1`)
-   - Phase 2: deletes oldest unwatched videos
-2. Iterates `channels.txt`, runs yt-dlp per channel
-3. Triggers Plex library scan
-4. Runs fix-titles.sh and fix-posters.sh
-5. Sleeps 3600 seconds, repeats
-
-### stream-proxy.py (streaming proxy + webhook)
-- **GET /stream/:id** — Streams YouTube video to Plex. Checks local disk first; if not found, fetches YouTube CDN URL via `yt-dlp --get-url` and proxies the stream. Triggers background download on first request.
-- **POST /webhook** — Receives Plex webhook events (`media.play`). For placeholder items, triggers background download.
-- **GET /health** — Returns JSON status with list of active downloads.
-
-### generate-placeholders.sh
-- Creates `.strm` files for the last N videos of a YouTube channel
-- Usage: `bash generate-placeholders.sh "https://www.youtube.com/@Channel" 10`
-
-### redownload-h264.sh
-- Re-downloads AV1/VP9 videos as H.264
-- Run manually: `bash ~/youtube-complex/youtube/scripts/redownload-h264.sh`
-
-### fix-titles.sh
-- Updates Plex episode titles from filenames via API
-
-### fix-posters.sh
-- Uploads channel avatars as Plex show posters
 
 ---
 
 ## Common Operations
 
-```bash
-# Check download progress
-tail -5 ~/youtube-complex/youtube/state/logs/download.log
+```powershell
+# Check service status
+docker compose ps
 
-# Check streaming proxy
-curl -s http://localhost:9090/health
+# Follow download logs
+docker compose logs -f downloader
 
-# Generate placeholders for a channel
-bash ~/youtube-complex/youtube/scripts/generate-placeholders.sh "https://www.youtube.com/@Channel" 10
+# Follow proxy logs
+docker compose logs -f stream-proxy
 
-# Check disk usage
-df -h ~/Movies/youtube
+# Check disk usage and proxy health
+docker compose exec stream-proxy curl -s http://localhost:9090/health
 
-# Start Plex
-bash ~/youtube-complex/start-plex.sh
+# Restart a service
+docker compose restart downloader
+docker compose restart stream-proxy
 
-# Check if services are running
-ps aux | grep download.sh | grep -v grep
-docker ps | grep plex
-curl -s http://localhost:9090/health
+# Stop everything
+docker compose down
 
-# Restart streaming proxy
-launchctl stop com.jlgarcia.youtube-webhook && launchctl start com.jlgarcia.youtube-webhook
+# Start everything (after a reboot)
+docker compose up -d
 
-# Reload launchd agents
-launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-dl.plist
-launchctl load ~/Library/LaunchAgents/com.jlgarcia.plex-start.plist
-launchctl load ~/Library/LaunchAgents/com.jlgarcia.youtube-webhook.plist
-
-# View Plex Web UI
-open http://localhost:32400/web
+# Rebuild the image (after a git pull with script changes)
+docker compose up -d --build
 ```
+
+### Add a Channel
+
+Edit `youtube\config\channels.txt` and add the channel URL. The downloader picks it up on the next cycle (no restart needed).
+
+### Add a Playlist
+
+Edit `youtube\config\playlists.txt`:
+
+```
+https://www.youtube.com/playlist?list=PLxxxxx | Nombre del Curso
+```
+
+Playlists are downloaded every cycle alongside channels, and their folder is protected from the disk-space cleanup.
+
+### Generate Placeholders for On-Demand
+
+```powershell
+docker compose exec downloader bash /app/scripts/generate-placeholders.sh "https://www.youtube.com/@ChannelName" 10
+```
+
+Creates placeholder MP4s for the last 10 videos. Play one in Plex to trigger the real download.
+
+### Force a Plex Scan
+
+```powershell
+# Replace with your values
+curl -X POST "http://192.168.1.78:32400/library/sections/9/refresh?X-Plex-Token=YOUR_TOKEN"
+```
+
+### Update Cookies
+
+1. Re-export `cookies.txt` from Chrome (see step 4 above)
+2. Overwrite `youtube\config\cookies.txt`
+3. No restart needed — the script reads the file on each download
+
+### Pull Updates
+
+```powershell
+git pull
+docker compose up -d --build
+```
+
+---
+
+## File Naming Convention
+
+```
+{Channel} - S{YYYY}E{MMDD}{index} - {Title} [{video_id}].mp4
+```
+
+Example:
+```
+31 minutos - S2026E012601 - Objeción denegada [_dMhuinekUc].mp4
+              │    │    └─ 01 = first video of that day
+              │    └────── 0126 = Jan 26
+              └─────────── 2026 = year (Plex season)
+```
+
+- **Season** = upload year → shows videos grouped by year in Plex
+- **Episode** = MMDD + 2-digit index → unique even for same-day uploads
+- **H.264 only** (`vcodec^=avc1`) — AV1/VP9 won't play on most TVs via Plex
+
+---
+
+## Storage Management
+
+The downloader enforces a **90% disk usage limit** before each download cycle:
+
+1. **Phase 1:** Deletes all watched videos (Plex `viewCount >= 1`) — always runs
+2. **Phase 2:** Deletes oldest unwatched videos until usage drops below 90%
+3. **Protected folders** (playlists): never deleted by the cleanup
+
+Watched videos are deleted automatically, so mark things as watched in Plex when you're done with them.
 
 ---
 
 ## Known Issues
 
-- **Cookies expire:** Re-export from Chrome when downloads fail with `LOGIN_REQUIRED`
-- **"ERROR" in download.log is often normal:** `--max-downloads 1` exits non-zero after 1 download
-- **AV1/VP9 playback:** Some older videos don't play on TVs — use `redownload-h264.sh`
-- **Old naming coexists with new:** Existing videos use `YYYY-MM-DD`; new use `SxxEyy`
-- **Plex DB repair:** Must use Plex's own `Plex SQLite` binary from inside Docker
+| Issue | Solution |
+|---|---|
+| Downloads fail with `LOGIN_REQUIRED` | Re-export `cookies.txt` from Chrome |
+| `ERROR: giving up` in logs after 1 download | Normal — `--max-downloads 1` exits non-zero by design |
+| Mapped drive `Z:\` not visible to Docker | Use UNC path `//server/share/youtube` in `MEDIA_PATH` instead |
+| Videos don't play on TV (codec issue) | Run `redownload-h264.sh` to re-download as H.264 |
+| Plex scan not triggering | Check `PLEX_URL`, `PLEX_TOKEN`, and `PLEX_SECTION` in `.env` |
