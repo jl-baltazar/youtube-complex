@@ -1,13 +1,22 @@
 services:
+  # Proveedor de PO Token (bgutil): genera los tokens "proof-of-origin" que YouTube
+  # exige para evitar el "Sign in to confirm you're not a bot".
+  pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: yt-pot-provider
+    restart: unless-stopped
+
   downloader:
     build: .
     image: yt-complex
     container_name: yt-downloader
     restart: unless-stopped
+    depends_on:
+      - pot-provider
     volumes:
       - ./youtube/config:/app/config
       - ./youtube/state:/app/state
-      - ${MEDIA_PATH}:/media/youtube
+      - media:/media/youtube
     env_file: .env
     command: bash /app/scripts/download.sh
 
@@ -21,6 +30,17 @@ services:
     volumes:
       - ./youtube/config:/app/config
       - ./youtube/state:/app/state
-      - ${MEDIA_PATH}:/media/youtube
+      - media:/media/youtube
     env_file: .env
     command: python3 /app/scripts/stream-proxy.py
+
+# The NAS is mounted directly by Docker (CIFS), so the stack is fully self-contained:
+# `docker compose up` mounts the share and starts downloading; `docker compose down`
+# stops everything. No dependency on the host macOS SMB mount / launchd automount.
+volumes:
+  media:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${NAS_HOST}/${NAS_SHARE}/youtube"
+      o: "username=${NAS_USER},password=${NAS_PASS},uid=${PLEX_UID},gid=${PLEX_GID},vers=${NAS_SMB_VERS},file_mode=0664,dir_mode=0775,noserverino"
