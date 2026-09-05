@@ -46,12 +46,10 @@ SCRIPTS_DIR="$BASE_DIR/youtube/scripts"
 LOGS_DIR="$BASE_DIR/youtube/state/logs"
 CONFIG_DIR="$BASE_DIR/youtube/config"
 STATE_DIR="$BASE_DIR/youtube/state"
-# MEDIA_DIR se resuelve dinámicamente: el mount SMB a veces cae en .../USB_TOSHIBA_EXTERNAL_USB_a_2-1
-_nas_mount="$(mount | sed -nE 's|.* on (/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2[^ ]*) .*|\1|p' | head -1)"
-MEDIA_DIR="${_nas_mount:-/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2}/youtube"
-PLEX_URL="http://192.168.1.78:32400"
+MEDIA_DIR="/Volumes/TOSHIBA SSD/youtube"
+PLEX_URL="http://localhost:32400"
 PLEX_TOKEN="PY1xBcA7QT9r6swusu1x"
-PLEX_SECTION=9
+PLEX_SECTION=3
 
 # Docker: el ciclo de descarga y el proxy corren como contenedores.
 # Prender/apagar = docker compose up/down (ver docker-compose.yml).

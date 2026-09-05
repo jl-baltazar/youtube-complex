@@ -121,7 +121,7 @@ plex_scan() {
     if [ -n "$channel_local" ]; then
         local channel_name
         channel_name=$(basename "$channel_local")
-        local plex_path="${PLEX_MEDIA_PREFIX}\\${channel_name}"
+        local plex_path="${PLEX_MEDIA_PREFIX}/${channel_name}"
         local encoded
         encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$plex_path")
         url="${PLEX_URL}/library/sections/${PLEX_SECTION}/refresh?path=${encoded}&X-Plex-Token=${PLEX_TOKEN}"
@@ -230,10 +230,18 @@ while true; do
             "${COOKIE_OPTION[@]}" "$line" 2>&1 | tee -a "${LOG_DIR}/yt-dlp.log" > "$ytdlp_tmp"
         rc="${PIPESTATUS[0]}"
         set -e
+        # Benign ERROR: lines that don't indicate a real failure
+        _has_real_error=false
+        if grep -q "^ERROR:" "$ytdlp_tmp"; then
+            if grep "^ERROR:" "$ytdlp_tmp" | grep -qv "unavailable\|Private video\|members.only\|age.restricted\|This live event\|Premieres in"; then
+                _has_real_error=true
+            fi
+        fi
+
         if [[ "$rc" -eq 0 || "$rc" -eq 101 ]]; then
             log "OK: $line"
             ok_count=$((ok_count + 1))
-        elif [[ "$rc" -eq 1 ]] && ! grep -q "^ERROR:" "$ytdlp_tmp"; then
+        elif [[ "$rc" -eq 1 && "$_has_real_error" == false ]]; then
             log "OK (no new): $line"
             ok_count=$((ok_count + 1))
         else

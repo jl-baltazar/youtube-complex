@@ -9,8 +9,8 @@ Automated YouTube channel archival system with Plex Media Server integration and
 - **H.264 only:** Always use `vcodec^=avc1` — AV1/VP9 won't play on TVs.
 - **SxxEyy naming:** New files must use `S{YYYY}E{MMDD}{index}` format. Never revert to `YYYY-MM-DD` naming.
 - **Cookies are sensitive:** Never commit `cookies.txt`, `.env`, or Plex tokens.
-- **Plex location:** Plex Media Server corre en server remoto Windows en `192.168.1.78:32400` (ya no en Docker local). Las descargas viven en el NAS (`//jj@192.168.1.130/USB_TOSHIBA_EXTERNAL_USB_a_2`, montado localmente en `/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2`); el server Plex las ve como `Z:\youtube`. **OJO:** el mount macOS a veces cae en `/Volumes/USB_TOSHIBA_EXTERNAL_USB_a_2-1` (sufijo `-1`) si el nombre canónico está ocupado; los scripts resuelven `MEDIA_DIR` dinámicamente desde `mount`, así que no hardcodear la ruta.
-- **Plex library:** Sección 7 (YouTube), Plex TV Series scanner, agent `tv.plex.agents.series`. Token: `PY1xBcA7QT9r6swusu1x`. Valores vigentes en `commands.sh` (`PLEX_URL`, `PLEX_TOKEN`, `PLEX_SECTION`).
+- **Plex location (2026-09-05):** Plex Media Server corre **NATIVO en macOS** (`Plex Media Server.app`), no en Docker ni en Windows. El container lo alcanza vía `PLEX_URL=http://host.docker.internal:32400`. Las descargas viven en el **TOSHIBA SSD por USB directo** al Mac; el container escribe en `/media/youtube` (bind rw a `/Volumes/TOSHIBA SSD/youtube`) y **Plex nativo las ve en `/Volumes/TOSHIBA SSD/youtube`** (por eso `PLEX_MEDIA_PREFIX=/Volumes/TOSHIBA SSD/youtube` con separador `/`, ya NO `Z:\youtube` con backslash). Ya no hay NAS/CIFS.
+- **Plex library:** Sección **3** (YouTube), Plex TV Series scanner, agent `tv.plex.agents.series`. Token: `PY1xBcA7QT9r6swusu1x`. Valores vigentes en `.env`/`commands.sh` (`PLEX_URL`, `PLEX_TOKEN`, `PLEX_SECTION`, `PLEX_MEDIA_PREFIX`).
 - **Disk limit:** 90% threshold. Watched videos deleted first, then oldest unwatched.
 - **`--max-downloads 1` exits non-zero:** This is expected — not a real error.
 - **Video IDs starting with `-`:** Always use `grep -qF --` to avoid flag interpretation.
