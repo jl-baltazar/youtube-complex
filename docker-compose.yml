@@ -19,17 +19,3 @@ services:
       - "/Volumes/TOSHIBA SSD/youtube:/media/youtube"
     env_file: .env
     command: bash /app/scripts/download.sh
-
-  stream-proxy:
-    build: .
-    image: yt-complex
-    container_name: yt-stream-proxy
-    restart: unless-stopped
-    ports:
-      - "${PROXY_PORT:-9090}:9090"
-    volumes:
-      - ./youtube/config:/app/config
-      - ./youtube/state:/app/state
-      - "/Volumes/TOSHIBA SSD/youtube:/media/youtube"
-    env_file: .env
-    command: python3 /app/scripts/stream-proxy.py
