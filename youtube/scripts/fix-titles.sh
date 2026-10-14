@@ -48,7 +48,7 @@ for ep in episodes:
     import os as _os, ntpath
     basename = _os.path.splitext(ntpath.basename(file_path))[0]
 
-    match = re.match(r'^.+ - S\d{4}E\d{4,8} - (.+?)(?:\s*\[[\w-]+\])?$', basename)
+    match = re.match(r'^.+ - S\d{4}E\d{4,} - (.+?)(?:\s*\[[\w-]+\])?$', basename)
     if not match:
         match = re.match(r'^.+ - \d{4}-\d{2}-\d{2} - (.+)$', basename)
     if not match:

@@ -19,3 +19,6 @@ plex/config.backup-*/
 
 # Claude Code session/scheduler data
 .claude/
+
+# Shorts feed capture (runtime data, not config)
+youtube/config/shorts-feed-ids.txt

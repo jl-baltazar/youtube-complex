@@ -19,9 +19,18 @@ CONFIG_FILE="${CONFIG_DIR}/yt-dlp.conf"
 SLEEP_SECONDS=3600
 MAX_DISK_USAGE_PCT=90
 
+# yt-dlp reescribe el archivo de cookies al terminar cada corrida. Si lo apuntamos
+# al maestro, un solo canal con respuesta "deslogueada" corrompe el jar y perdemos
+# las cookies de auth. Por eso cada invocacion usa una COPIA desechable, refrescada
+# desde el maestro intacto justo antes de correr.
+MASTER_COOKIES="${CONFIG_DIR}/cookies.txt"
+COOKIE_WORK="${STATE_DIR}/.cookies-active.txt"
+have_cookies() { [[ -s "${MASTER_COOKIES}" ]] && grep -qE '^\.' "${MASTER_COOKIES}"; }
+refresh_cookies() { have_cookies && cp -f "${MASTER_COOKIES}" "${COOKIE_WORK}" 2>/dev/null || true; }
 COOKIE_OPTION=()
-if [[ -s "${CONFIG_DIR}/cookies.txt" ]] && grep -qE '^\.' "${CONFIG_DIR}/cookies.txt"; then
-  COOKIE_OPTION=(--cookies "${CONFIG_DIR}/cookies.txt")
+if have_cookies; then
+  refresh_cookies
+  COOKIE_OPTION=(--cookies "${COOKIE_WORK}")
 fi
 
 mkdir -p "${LOG_DIR}"
@@ -32,9 +41,18 @@ PROTECTED_FOLDERS_FILE="${STATE_DIR}/playlist-folders.txt"
 is_protected() {
     local video_file="$1"
     [[ -s "${PROTECTED_FOLDERS_FILE}" ]] || return 1
-    local folder_name
-    folder_name=$(basename "$(dirname "$video_file")")
-    grep -qxF -- "$folder_name" "${PROTECTED_FOLDERS_FILE}" 2>/dev/null
+    # Revisa el folder inmediato Y todos los ancestros hasta MEDIA_DIR. Necesario
+    # porque un short vive en Shorts/Season 2026/archivo: el show protegido es
+    # "Shorts" aunque el padre inmediato sea "Season 2026".
+    local dir
+    dir=$(dirname "$video_file")
+    while [[ -n "$dir" && "$dir" == "${MEDIA_DIR}"/* ]]; do
+        if grep -qxF -- "$(basename "$dir")" "${PROTECTED_FOLDERS_FILE}" 2>/dev/null; then
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
 }
 
 log() {
@@ -223,6 +241,7 @@ while true; do
         log "Downloading: $line"
 
         ytdlp_tmp=$(mktemp)
+        refresh_cookies
         set +e
         yt-dlp --config-location "${CONFIG_FILE}" \
             --download-archive "${ARCHIVE_FILE}" \
@@ -270,6 +289,20 @@ while true; do
     fi
     get_touched_channels "$playlist_log" >> "$touched_tmp" || true
     rm -f "$playlist_log"
+
+    log "Processing shorts..."
+    shorts_log=$(mktemp)
+    set +e
+    "${BASE_DIR}/scripts/download-shorts.sh" 2>&1 | tee -a "${LOG_DIR}/download.log" > "$shorts_log"
+    shorts_rc="${PIPESTATUS[0]}"
+    set -e
+    if [[ "$shorts_rc" -eq 0 ]]; then
+        log "Shorts processed."
+    else
+        log "WARNING: Shorts processing had errors (exit $shorts_rc)."
+    fi
+    get_touched_channels "$shorts_log" >> "$touched_tmp" || true
+    rm -f "$shorts_log"
 
     touched_count=$(sort -u "$touched_tmp" | grep -c . || true)
     if [ "$touched_count" -gt 0 ]; then
