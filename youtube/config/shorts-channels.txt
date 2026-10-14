@@ -1,0 +1,6 @@
+# Canales cuyos SHORTS quieres bajar (tab /shorts). Suscrito o NO.
+# Un URL por linea. Se bajan los N mas recientes (CHANNEL_SHORTS_LIMIT, default 5).
+# Ejemplos (descomenta o agrega los tuyos):
+# https://www.youtube.com/@midudev/shorts
+# https://www.youtube.com/@mrdoctor/shorts
+# https://www.youtube.com/@backdoor/shorts

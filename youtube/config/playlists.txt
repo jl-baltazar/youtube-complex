@@ -10,3 +10,4 @@
 # https://www.youtube.com/playlist?list=PLxxxxx | Curso de Python
 # https://www.youtube.com/playlist?list=PLyyyyy
 https://youtube.com/playlist?list=PLrFkZrRQk9nmM_HGekCnk3dgef4R6SlVe | Soy Tu Fan temp 1
+https://youtube.com/playlist?list=PLrFkZrRQk9nl802ACXIkHl-IkAo-jcyOf | Soy Tu Fan temp 2

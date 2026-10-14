@@ -1,0 +1,188 @@
+# Pool de terminos para la fuente RANDOM (salir del algoritmo).
+# Cada ciclo se eligen unos cuantos al azar y se busca "<termino> #shorts"
+# de forma ANONIMA (sin tus cookies) para romper tu burbuja.
+# Un termino por linea. Mezcla idiomas y temas a proposito. Agrega los que quieras.
+#
+# Lo que # comenta se ignora.
+
+# --- Ciencia / naturaleza ---
+deep sea creatures
+astronomy facts
+volcano eruption
+microscope life
+bioluminescence
+northern lights
+desert wildlife
+fungi timelapse
+
+# --- Manualidades / oficios ---
+blacksmith forging
+glass blowing
+pottery wheel
+woodworking joinery
+leather craft
+calligraphy
+restoration cleaning
+watch repair
+
+# --- Comida del mundo ---
+street food thailand
+japanese knife skills
+mexican market food
+indian tandoor
+nigerian jollof
+georgian khachapuri
+sourdough bread
+coffee latte art
+
+# --- Musica / instrumentos raros ---
+hang drum
+throat singing
+hurdy gurdy
+flamenco guitar
+west african kora
+theremin
+mariachi trumpet
+
+# --- Mundo / culturas ---
+mongolia nomads
+patagonia hiking
+kerala backwaters
+sahara caravan
+tokyo night walk
+andes highlands
+iceland glacier
+
+# --- Habilidades / deporte de nicho ---
+parkour
+freediving
+slackline
+chess puzzle
+rubiks cube solve
+archery trick shot
+bouldering
+
+# --- Curiosidades / datos ---
+etymology facts
+map geography facts
+history mystery
+optical illusion
+physics experiment
+math visualization
+language learning tip
+
+# --- Animales ---
+octopus intelligence
+border collie herding
+falconry
+axolotl
+capybara
+honeybee swarm
+
+# --- Arte / diseno ---
+kinetic sculpture
+street art mural
+origami complex
+3d printing timelapse
+generative art
+architecture brutalism
+
+# --- Espanol / Mexico ---
+datos curiosos historia
+ciencia explicada
+oficios tradicionales mexico
+lenguas indigenas
+cocina prehispanica
+lucha libre
+
+# ===================================================================
+# Terminos AMPLIOS / POPULARES (muchos Shorts verticales disponibles,
+# para subir volumen). Agregados 2026-10-01.
+# ===================================================================
+
+# --- Satisfying / ASMR / proceso ---
+satisfying
+oddly satisfying
+asmr cooking
+pressure washing
+restoration
+soap cutting
+kinetic sand
+hydraulic press
+
+# --- Comida rapida / recetas ---
+easy recipe
+street food
+one minute recipe
+baking
+food plating
+coffee recipe
+ramen
+dessert
+
+# --- DIY / trucos / skills ---
+life hack
+diy project
+woodworking
+gardening tips
+car detailing
+cleaning hack
+home organization
+phone photography tips
+
+# --- Comedia / gente / calle ---
+comedy skit
+street interview
+magic trick
+card trick
+impressions
+stand up comedy
+
+# --- Animales / mascotas ---
+puppy
+cats being funny
+golden retriever
+parrot talking
+aquarium
+wildlife rescue
+
+# --- Deporte / fitness / movimiento ---
+calisthenics
+soccer skills
+basketball trick
+gym workout
+yoga flow
+skateboarding
+dance challenge
+
+# --- Ciencia / curiosidad rapida ---
+science experiment
+did you know
+space facts
+chemistry reaction
+how it works
+history in 60 seconds
+
+# --- Arte / musica / creatividad ---
+digital art
+speed painting
+piano cover
+guitar riff
+beatbox
+pottery
+
+# --- Viajes / lugares / POV ---
+travel pov
+hidden gem travel
+city walk
+van life
+street food market
+drone view
+
+# --- Mexico / Latam amplios ---
+recetas mexicanas
+datos curiosos
+trucos de cocina
+rutina de ejercicio
+chistes
+turismo mexico

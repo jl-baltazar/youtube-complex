@@ -11,9 +11,15 @@ MEDIA_DIR="${MEDIA_DIR:-/media/youtube}"
 PROTECTED_FILE="${STATE_DIR}/playlist-folders.txt"
 LOG_DIR="${STATE_DIR}/logs"
 
+# Copia desechable de cookies (yt-dlp reescribe el archivo al terminar; no tocar el maestro).
+MASTER_COOKIES="${CONFIG_DIR}/cookies.txt"
+COOKIE_WORK="${STATE_DIR}/.cookies-playlists.txt"
+have_cookies() { [[ -s "${MASTER_COOKIES}" ]] && grep -qE '^\.' "${MASTER_COOKIES}"; }
+refresh_cookies() { have_cookies && cp -f "${MASTER_COOKIES}" "${COOKIE_WORK}" 2>/dev/null || true; }
 COOKIE_OPTION=()
-if [[ -s "${CONFIG_DIR}/cookies.txt" ]] && grep -qE '^\.' "${CONFIG_DIR}/cookies.txt"; then
-    COOKIE_OPTION=(--cookies "${CONFIG_DIR}/cookies.txt")
+if have_cookies; then
+    refresh_cookies
+    COOKIE_OPTION=(--cookies "${COOKIE_WORK}")
 fi
 
 mkdir -p "${LOG_DIR}" "${MEDIA_DIR}"
@@ -37,6 +43,8 @@ download_playlist() {
     local label rc
     local tmp_log
     tmp_log=$(mktemp)
+
+    refresh_cookies
 
     if [[ -n "$custom_name" ]]; then
         label="$custom_name"
